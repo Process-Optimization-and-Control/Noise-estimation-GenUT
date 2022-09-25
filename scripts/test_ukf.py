@@ -126,14 +126,14 @@ s, w_gut_theta = points_genut.compute_scaling_and_weights(par_cov_fx,  #generate
 #                                                     s)
 
 #%% Make UKF
-kappa = 0
-kappa = 3-dim_x
-# kappa = 1-dim_x#3-dim_x
-points = ukf_sp.JulierSigmaPoints(dim_x, kappa)
+# kappa = 0
+# kappa = 3-dim_x
+# # kappa = 1-dim_x#3-dim_x
+# points = ukf_sp.JulierSigmaPoints(dim_x, kappa)
 
-sigmas_x = points.sigma_points(x0, P0)
-points._compute_weights()
-w_x = points.Wm
+# sigmas_x = points.sigma_points(x0, P0)
+# points._compute_weights()
+# w_x = points.Wm
 
 sqrt_fn = scipy.linalg.sqrtm
 # sqrt_fn = lambda P: scipy.linalg.cholesky(P, lower = True)

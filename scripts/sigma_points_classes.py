@@ -326,7 +326,7 @@ issn = {2331-8422},
             raise ValueError(f"P.shape = {P.shape}, it must be ({self.n, self.n})")
         
         if sqrt_method is None:
-            sqrt_mat = self.sqrt
+            sqrt_method = self.sqrt
         
         n = self.n #dimension of x
         
@@ -340,7 +340,7 @@ issn = {2331-8422},
         sigmas = np.zeros((n, dim_sigma))
         sigmas[:, 0] = mu
         
-        self.P_sqrt = sqrt_mat(P)
+        self.P_sqrt = sqrt_method(P)
         
         #compute scaling and weights
         self.s, Wm = self.compute_scaling_and_weights(P, S, K, s1 = s1)

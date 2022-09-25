@@ -16,6 +16,7 @@ import copy
 import sklearn.preprocessing
 #Self-written modules
 import sigma_points_classes as spc
+# from myFilter import sigma_points as spc
 import unscented_transformation as ut
 
 # from time_out_manager import time_limit
@@ -995,9 +996,12 @@ def get_sigmapoints_and_weights(par_in, samples = False):
     s, w = sigma_points.compute_scaling_and_weights(cov,  #generate scaling and weights
                                                     cm3, 
                                                     cm4)
-    sigmas, P_sqrt = sigma_points.compute_sigma_points(mean, #sigma points and P_sqrt
-                                                        cov, 
-                                                        s)
+    try:
+        sigmas, P_sqrt = sigma_points.compute_sigma_points(mean, #sigma points and P_sqrt
+                                                            cov, 
+                                                            s)
+    except:
+        sigmas, w, _, P_sqrt = sigma_points.compute_sigma_points(mean, cov, S = cm3, K = cm4, s1 = None, sqrt_method = None)
     return sigmas, w
 def get_sigmapoints_and_weights_julier(par_in, samples = False, kappa = 0.):
     """

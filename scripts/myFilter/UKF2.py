@@ -54,28 +54,17 @@ class UnscentedKalmanFilter(object):
     Attributes
     ----------
 
-    x : numpy.array(dim_x)
-        state estimate vector
-
-    P : numpy.array(dim_x, dim_x)
-        covariance estimate matrix
-
     x_prior : numpy.array(dim_x)
-        Prior (predicted) state estimate. The *_prior and *_post attributes
-        are for convienence; they store the  prior and posterior of the
-        current epoch. Read Only.
+        Prior (predicted) state estimate. 
 
     P_prior : numpy.array(dim_x, dim_x)
-        Prior (predicted) state covariance matrix. Read Only.
+        Prior (predicted) state covariance matrix. .
 
     x_post : numpy.array(dim_x)
-        Posterior (updated) state estimate. Read Only.
+        Posterior (updated) state estimate. .
 
     P_post : numpy.array(dim_x, dim_x)
-        Posterior (updated) state covariance matrix. Read Only.
-
-    y : ndarray
-        Last measurement used in update(). Read only.
+        Posterior (updated) state covariance matrix. .
 
     R : numpy.array(dim_y, dim_y)
         measurement noise matrix
@@ -163,36 +152,24 @@ class UnscentedKalmanFilter(object):
             self.msqrt = scipy.linalg.sqrtm
         else:
             self.msqrt = sqrt_fn
-
-        # weights for the means and covariances.
-        # self.Wm, self.Wc = points.Wm, points.Wc
-        # try:
-        #     self.Wm, self.Wc = points.Wm, points.Wc
-        # except AttributeError:
-        #     print(f"At {type(self)} __init__, the points.Wm and/or points.Wc did not exist. Points_fn are {type(points)}. Assuming this is a property of the specific sigma points, and continuing the script.")
-
-
-        # sigma points transformed through f(x) and h(x)
-        # variables for efficiency so we don't recreate every update
-
-        self.sigmas_raw_fx = np.zeros((self._dim_x, self._num_sigmas))
-        self.sigmas_raw_hx = np.zeros((self._dim_x, self._num_sigmas))
-        self.sigmas_prop = np.zeros((self._dim_x, self._num_sigmas))
-        self.sigmas_meas = np.zeros((self._dim_y, self._num_sigmas))
+        
+        #saved sigma points
+        self.sigmas_raw_fx = np.zeros((self._dim_x, self._num_sigmas)) #based on posterior distribution
+        self.sigmas_prop = np.zeros((self._dim_x, self._num_sigmas)) #propagated through fx and form prior distribution
+        self.sigmas_raw_hx = np.zeros((self._dim_x, self._num_sigmas)) #based on prior distribution
+        self.sigmas_meas = np.zeros((self._dim_y, self._num_sigmas)) #propagated through measurement equation. Form posterior distribution
 
         self.K = np.zeros((dim_x, dim_y))    # Kalman gain
         self.y_res = np.zeros((dim_y, 1))           # residual
         self.y = np.array([[None]*dim_y]).T  # measurement
-        # self.S = np.zeros((dim_z, dim_y))    # system uncertainty
-        # self.SI = np.zeros((dim_z, dim_y))   # inverse system uncertainty
 
-        self.inv = np.linalg.inv
+        self.inv = np.linalg.inv #not really required
 
 
     def predict(self, UT=None, Q = None, kwargs_sigma_points = {}, fx=None, **fx_args):
         r"""
-        Performs the predict step of the UKF. On return, self.x and
-        self.P contain the predicted state (x) and covariance (P). '
+        Performs the predict step of the UKF. On return, self.x_prior and
+        self.P_prior contain the predicted state (x) and covariance (P). '
 
         Important: this MUST be called before update() is called for the first
         time.
@@ -200,15 +177,16 @@ class UnscentedKalmanFilter(object):
         Parameters
         ----------
 
-        fx : callable f(x, dt, **fx_args), optional
+        fx : callable f(x, **fx_args), optional
             State transition function. If not provided, the default
             function passed in during construction will be used.
 
-        UT : function(sigmas, Wm, Wc, noise_cov), optional
+        UT : function(sigmas, Wm, Wc, kwargs_sigma_points), optional
             Optional function to compute the unscented transform for the sigma
-            points passed through hx. Typically the default function will
-            work - you can use x_mean_fn and z_mean_fn to alter the behavior
-            of the unscented transform.
+            points passed. If the points are GenUT, you can pass 3rd and 4th moment through kwargs_sigma_points (see description of sigma points class for details)
+            
+        Q : np.array((dim_x, dim_x)), optional. If None, self.Q is used.
+            Process noise covariance. It is ADDITIVE to the estimated prior covariance
 
         **fx_args : keyword arguments
             optional keyword arguments to be passed into f(x).
@@ -227,43 +205,37 @@ class UnscentedKalmanFilter(object):
         # calculate sigma points for given mean and covariance
         self.sigmas_raw_fx, self.Wm, self.Wc, P_sqrt = self.points_fn.compute_sigma_points(self.x_post, self.P_post, **kwargs_sigma_points)
         
-        # print(f"sigmas_raw_fx: {self.sigmas_raw_fx.shape}")
-        
-        # self.sigmas_prop = self.compute_process_sigmas(self.sigmas_raw_fx, fx = fx, **fx_args)
+        #propagate sigma points through fx
         self.sigmas_prop = self.compute_transformed_sigmas(self.sigmas_raw_fx, fx, **fx_args)
         
-        #and pass sigmas through the unscented transform to compute prior
+        #pass the propagatedsigmas through the unscented transform to compute prior
         self.x_prior, self.P_prior = UT(self.sigmas_prop, self.Wm, self.Wc)
         self.P_prior += Q #add process noise
 
-    # def compute_process_sigmas(self, sigmas_raw_fx, fx=None, **fx_args):
-    #     """
-    #     computes the values of sigmas_f. Normally a user would not call
-    #     this, but it is useful if you need to call update more than once
-    #     between calls to predict (to update for multiple simultaneous
-    #     measurements), so the sigmas correctly reflect the updated state
-    #     x, P.
-    #     """
-
-    #     if fx is None:
-    #         fx = self.fx
-        
-    #     sigmas_prop = map(fx, sigmas_raw_fx.T)
-    #     sigmas_prop = np.array(list(sigmas_prop)).T
-    #     return sigmas_prop
     
     def compute_transformed_sigmas(self, sigmas_in, func, **func_args):
+        """
+        Send sigma points through a nonlinear function. Call general distribution z, dimension of this variable is dim_z
+
+        Parameters
+        ----------
+        sigmas_in : TYPE np.array((dim_z, dim_sigmas))
+            DESCRIPTION. Sigma points to be propagated
+        func : TYPE function(np.array(dim_z,), **func_args). F(dim_z)=>dim_q, q output dimension
+            DESCRIPTION. function the sigma points are propagated through
+        **func_args : TYPE list, optional
+            DESCRIPTION. Additional inputs to func
+
+        Returns
+        -------
+        sigmas_out : TYPE np.array((dim_q, dim_sigmas))
+            DESCRIPTION. Propagated sigma points
+
+        """
         sigmas_out = map(func, sigmas_in.T)
         sigmas_out = np.array(list(sigmas_out)).T
         return sigmas_out
         
-        # for i, s in enumerate(sigmas):
-        #     if ((any(s<=1e-8)) and (self._name != "qf")):
-        #     # if any(s<=1e-8):
-        #         # print(f"{self._name} has low value of sigma point: s = {s}")
-        #         raise myExceptions.NegativeSigmaPoint(f"Negative sigma point detected in {self._name}, s = {s}")
-                
-        #     self.sigmas_f[i] = fx(s, dt, **fx_args)
             
     def update(self, y, R=None, UT=None, hx=None, kwargs_sigma_points = {}, **hx_args):
         """
@@ -310,17 +282,12 @@ class UnscentedKalmanFilter(object):
             R = np.eye(self._dim_y) * R
             
         #recreate sigma points
-        self.sigmas_raw_hx, self.Wm, self.Wc, P_sqrt = self.points_fn.compute_sigma_points(self.x_prior, self.P_prior, **kwargs_sigma_points)
-        # self.sigmas_f = self.points_fn.sigma_points(self.x, self.P)
-
-        # # pass prior sigmas through h(x) to get measurement sigmas
-        # # the shape of sigmas_h will vary if the shape of z varies, so
-        # # recreate each time
-        # sigmas_h = []
-        # for s in self.sigmas_f:
-        #     sigmas_h.append(hx(s, **hx_args))
-
-        # self.sigmas_h = np.atleast_2d(sigmas_h)
+        (self.sigmas_raw_hx, 
+         self.Wm, self.Wc, 
+         P_sqrt) = self.points_fn.compute_sigma_points(self.x_prior,
+                                                       self.P_prior,
+                                                       **kwargs_sigma_points
+                                                       )
         
         #send sigma points through measurement equation
         self.sigmas_meas = self.compute_transformed_sigmas(
@@ -329,51 +296,22 @@ class UnscentedKalmanFilter(object):
         #compute mean and covariance of the predicted measurement
         y_pred, Py_pred = UT(self.sigmas_meas, self.Wm, self.Wc)
         Py_pred += R #add measurement noise
-        # Py_pred_inv = self.inv(Py_pred)
         
         Pxy = self.cross_covariance(self.x_prior, y_pred, self.sigmas_raw_hx, self.sigmas_meas, self.Wc)
         
         #Kalman gain
-        # self.K = Pxy @ Py_pred_inv #should be better way - avoid inverting Py OR use the Cholesky factorization (if self.sqrt_fn is Cholesky) to calculate Py_pred_inv
-        
         #solve K@Py_pred = P_xy <=> PY_pred.T @ K.T = P_xy.T
-        # self.K = np.linalg.lstsq(Py_pred.T, Pxy.T)[0].T #also an option
         self.K = np.linalg.solve(Py_pred.T, Pxy.T).T
+        # self.K = np.linalg.lstsq(Py_pred.T, Pxy.T)[0].T #also an option
         assert self.K.shape == (self._dim_x, self._dim_y)
         
-        self.y_res = y - y_pred #innovation term
+        #Innovation term of the UKF
+        self.y_res = y - y_pred 
         
         #calculate posterior
         self.x_post = self.x_prior + self.K @ self.y_res
         self.P_post = self.P_prior - self.K @ Py_pred @ self.K.T
         
-
-        # # mean and covariance of prediction passed through unscented transform
-        # # print(f"sigmas_h: {self.sigmas_h.shape}\n",
-        # #       f"Wm: {self.Wm.shape}")
-        # zp, self.S = UT(self.sigmas_h, self.Wm, self.Wc, R, self.z_mean, self.residual_z)
-        # self.SI = self.inv(self.S)
-
-        # # compute cross variance of the state and the measurements
-        # Pxz = self.cross_variance(self.x, zp, self.sigmas_f, self.sigmas_h)
-
-
-        # self.K = dot(Pxz, self.SI)        # Kalman gain
-        # self.y = self.residual_z(z, zp)   # residual
-
-        # # update Gaussian state estimate (x, P)
-        # self.x = self.state_add(self.x, dot(self.K, self.y))
-        # self.P = self.P - dot(self.K, dot(self.S, self.K.T))
-
-        # # save measurement and posterior state
-        # self.z = deepcopy(z)
-        # self.x_post = self.x.copy()
-        # self.P_post = self.P.copy()
-
-        # # set to None to force recompute
-        # self._log_likelihood = None
-        # self._likelihood = None
-        # self._mahalanobis = None
         
     def cross_covariance(self, x_mean, y_mean, sigmas_x, sigmas_y, W_c):
         """
@@ -420,16 +358,4 @@ class UnscentedKalmanFilter(object):
                            @ (sigmas_y[:, i] - y_mean).reshape(-1,1).T)
         return P_xy
 
-    # def cross_variance(self, x, z, sigmas_f, sigmas_h):
-    #     """
-    #     Compute cross variance of the state `x` and measurement `z`.
-    #     """
-
-    #     Pxz = zeros((sigmas_f.shape[1], sigmas_h.shape[1]))
-    #     N = sigmas_f.shape[0]
-    #     for i in range(N):
-    #         dx = self.residual_x(sigmas_f[i], x)
-    #         dz = self.residual_z(sigmas_h[i], z)
-    #         Pxz += self.Wc[i] * outer(dx, dz)
-    #     return Pxz
 
