@@ -15,9 +15,9 @@ import seaborn as sns
 import copy
 import sklearn.preprocessing
 #Self-written modules
-import sigma_points_classes as spc
-# from myFilter import sigma_points as spc
-import unscented_transformation as ut
+
+from state_estimator import sigma_points_classes as spc
+from state_estimator import unscented_transform as ut
 
 # from time_out_manager import time_limit
 
@@ -148,93 +148,19 @@ def integrate_ode_parametric_uncertainty(F, x0, t_span, uk, par_fx, dim_par):
     return xf
 
 
-def get_measurement_matrix(dim_x, par):
-    radius = par["radius_tank"] #[m]
-    A_tank_btm = area_circle(radius)
-    rho = par["rho"]
-    g = par["g"]
-    H = np.zeros((3, dim_x))
+
+def hx(x):
+    H = np.zeros((3, x.shape[0]))
     H[0,0] = 1
     H[1,1] = 1
     H[-1,-1] = 1
-    # H[3,5] = 1
-    # H[4,6] = ((rho*g/A_tank_btm)*
-    #              1/1e3*#1000 m3/L
-    #              1e3/1e5 #Pa to mbar
-    #              )
-    return H
-
-def hx(x, par):#, v):
-    #change this later? For volume, we assume dP measurement. From the venturi flowmeter for the subsea pump, we have an accuracy of 0,065%*span_DP*multiplier_accuracy/sigma_level =0,065/100*320mbar*0,5/2 = 0,052 mbar. 
-    H = get_measurement_matrix(x.shape[0], par)
-    y = np.dot(H, x)# + v
-    # y[-1] = dp_measurement(y[-1], par)
+    y = np.dot(H, x)
     return y
 
-def area_circle(r):
-    return np.pi*np.square(r)
-def height_cylinder(r, V=1e-3):
-    return V/area_circle(r)
-def dp_liquid_column(h, rho = 1e3):
-    return rho*9.81*h
-
-
-def dp_measurement(V, par):
-    """
-    Returns dP measurement in a tank filled with liquid
-
-    Parameters
-    ----------
-    V : TYPE float
-        DESCRIPTION. Volume in the tank [L]
-    par : TYPE dict
-        DESCRIPTION. Contains keys "radius" [m] and "rho" [kg/m3]
-
-    Returns
-    -------
-    dp : TYPE float
-        DESCRIPTION. dP in tank due to liquid column [mbar]
-
-    """
-    radius = par["radius_tank"] #[m]
-    liquid_height = height_cylinder(radius, 
-                                    V = V*1e-3 #[m3]
-                                    )
-    dp = dp_liquid_column(liquid_height, rho = par["rho"])/1e5*1e3 #[mbar]
-    return dp
-# # r = np.linspace(1,5)/1e2 #[m]
-# r = 3/1e2 #[m]
-# a = area_circle(r)
-
-# # dp = dp_liquid_column(h)/1e5*1e3 #[mbar]
-# p = dict(radius_tank = r, rho = 1000)
-# V=np.linspace(.3,1)
-# # V=np.zeros(50)
-# V=np.ones(50)
-# dp_meas = dp_measurement(V, p) + np.random.normal(scale = .052, size = V.shape[0])
-# plt.scatter(V, dp_meas)
-# h = height_cylinder(r, V=V*1e-3)
-# plt.plot(r,dp)    
 
 def sigma_repeatability():
     v_rep = np.sqrt(np.array([1e-2, 1., 1e-3]))
     return v_rep
-
-def sigma_measurement(x, par):
-    
-    # y = x + alpha_y*x*sigma, noise is increasing with x. For NH3, alpha=6%
-    # H = get_measurement_matrix(x.shape[0], par)
-    sigma = sigma_repeatability()
-    # sigma_det  = np.multiply(np.dot(H, x), par["alpha_y"])
-    # sigma_det = np.multiply(hx(x), par["alpha_y"])
-    # sigma = sigma + sigma_det
-    return sigma
-
-def vx(x, par):
-    # cov = np.diag(np.square(sigma_measurement(x, par)))
-    cov = np.diag(np.square(sigma_repeatability())) #simplified unitl things are worrking
-    return scipy.stats.multivariate_normal(cov = cov).rvs()
-
 
 
 def fx_for_UT_gen_Q(sigmas, list_of_keys, F, x, t_span, uk, par_fx):
@@ -555,31 +481,11 @@ def get_literature_values(N_samples = int(5e3), plot_par = False, plt_kwargs = {
      [-8.48131358e-05,  5.04169428e-05,  1.34613316e-04, -2.68457358e-05, 8.12620817e-05],
      [ 6.68376093e-05, -5.23194085e-05, -2.68457358e-05,  5.86179931e-05, -6.39498228e-05],
      [-8.72403997e-05,  5.35002281e-05,  8.12620817e-05, -6.39498228e-05, 2.12578139e-04]])
-    # corr_after, std_dev = correlation_from_covariance(par_cov_fx_multivar)
-    # # print(f"corre_before: {corr_before}\n\n",
-    # #       f"corr_after: {corr_after}\n\n",
-    # #       f"corr-b-corr_a: {np.linalg.norm(corr_before-corr_after)}")
-    # print(f"corr_after: {corr_after}")
-    # print(f"std_dev: {std_dev}")
-    # print(f"mean: {list(par_mean_fx_multivar.values())}")
-    
-    # corr_fx = correlation_from_covariance(par_cov_fx_multivar)
-    # if not is_well_conditioned(corr_fx):
-    #     # print("par_cov_fx !>=0. Using nearestPD(par_cov_fx)")
-    #     par_cov_fx_multivar2 = nearest_well_conditioned_corr_mat(par_cov_fx_multivar) #returns the postive definite matrix closest to the input matrix, as measured by the Frobenius norm
-    #     print(f"norm:cov2-cov1: {np.linalg.norm(par_cov_fx_multivar2-par_cov_fx_multivar)}")
-    #     corr_fx = correlation_from_covariance(par_cov_fx_multivar2)
-    
-    # print(f"cov_cond: {np.linalg.cond(par_cov_fx_multivar)}\n",
-    #       f"corr_cond: {np.linalg.cond(corr_fx)}")
-    
-    # if not isPD(par_cov_fx_multivar2):
-    #     # print("par_cov_fx !>=0. Using nearestPD(par_cov_fx)")
-    #     par_cov_fx_multivar3 = nearestPD(par_cov_fx_multivar2) #returns the postive definite matrix closest to the input matrix, as measured by the Frobenius norm
-    #     print(f"norm cov3-cov1: {np.linalg.norm(par_cov_fx_multivar3-par_cov_fx_multivar)}")
-    #     corr_fx = correlation_from_covariance(par_cov_fx_multivar3)
-    # print(f"cov_cond: {np.linalg.cond(par_cov_fx_multivar)}\n",
-    #       f"corr_cond: {np.linalg.cond(corr_fx)}")
+   
+    std_dev = np.sqrt(np.diag(par_cov_fx_multivar))
+    std_dev_inv = np.diag([1/si for si in std_dev])
+    corr = std_dev_inv @ par_cov_fx_multivar @ std_dev_inv
+    # print(f"std_dev: {std_dev}\nCorrelation:\n{corr}")
     
     
     par_mean_fx_univar = {
@@ -600,30 +506,16 @@ def get_literature_values(N_samples = int(5e3), plot_par = False, plt_kwargs = {
                                   "kwargs": {} #if e.g. student-t, we need more arguments
                                   }
     
-    par_mean_hx_univar = dict(radius_tank = 3/100, #[m]
-                        rho = 1000, #[kg/m3], density of liquid in reactor
-                        g = 9.81 #[m/s2]
-                        )
-    par_sigma_hx_univar = dict(radius_tank = .5/1000 #[m] (mm std dev)
-                        )
-    par_dist_spec_hx_univar = {"radius_tank": {"dist": "gamma",
-                                        "kwargs": {}}
-                        }
     
     par_dist_fx = {}
     par_scaling_fx = {"scaler_biopar": 1e3 #scaler for bioparameters to get better condition number
                       }
     par_det_fx = {}
-    par_dist_hx = {}
-    par_det_hx = {}
     
     #All parameters which are not in par_dist_spec_fx are deterministic. Add them to dict
     for par_name, val in par_mean_fx_univar.items():
         if not par_name in par_dist_spec_fx_univar:
             par_det_fx[par_name] = val
-    for par_name, val in par_mean_hx_univar.items():
-        if not par_name in par_dist_spec_hx_univar:
-            par_det_hx[par_name] = val
     
     #Set distributions from scipy.stats for fx
     for par_name, dist_spec in par_dist_spec_fx_univar.items():
@@ -634,9 +526,8 @@ def get_literature_values(N_samples = int(5e3), plot_par = False, plt_kwargs = {
             alpha, loc, beta = get_param_gamma_dist(par_mean_fx_univar[par_name],
                                                     par_sigma_fx_univar[par_name], 
                                                     num_std = 2)
+            # print(f"Gamma distribution with spec:\n{par_name}, a={alpha},loc={loc},beta={beta}")
             par_dist_fx[par_name] = scipy.stats.gamma(alpha, loc = loc, scale = 1/beta)
-            # print(f"par_name: {par_name}\n",
-            #       f"hyperpar: {alpha}, {loc}, {beta}")
         
         elif dist_spec["dist"] == "student_t":
             dof = dist_spec["kwargs"]["dof"]
@@ -651,57 +542,24 @@ def get_literature_values(N_samples = int(5e3), plot_par = False, plt_kwargs = {
         else:
             raise KeyError("Have not implemented this distribution")
         
-    #Set distributions from scipy.stats for hx
-    for par_name, dist_spec in par_dist_spec_hx_univar.items():
-        if dist_spec["dist"] == "norm":
-            par_dist_hx[par_name] = scipy.stats.norm(loc = par_mean_hx_univar[par_name],
-                                                  scale = par_sigma_hx_univar[par_name])
-        elif dist_spec["dist"] == "gamma":
-            alpha, loc, beta = get_param_gamma_dist(par_mean_hx_univar[par_name],
-                                                    par_sigma_hx_univar[par_name], 
-                                                    num_std = 2)
-            par_dist_hx[par_name] = scipy.stats.gamma(alpha, loc = loc, scale = 1/beta)
-        
-        elif dist_spec["dist"] == "student_t":
-            dof = dist_spec["kwargs"]["dof"]
-            par_dist_hx[par_name] = scipy.stats.t(dof, 
-                                                loc = par_mean_hx_univar[par_name],
-                                                scale = par_sigma_hx_univar[par_name])
-            # data = scipy.stats.norm(loc = par_mean_hx[par_name], 
-            #                         scale = par_sigma_hx[par_name])
-            # t_fitted = scipy.stats.t.fit(data)
-            # par_dist[par_name] = scipy.stats.t(dof, 
-            #                                     loc = par_mean_hx[par_name])
-        else:
-            raise KeyError("Have not implemented this distribution")
-        
     #Draw samples from these distributions
     dist_multivar = scipy.stats.multivariate_normal(mean = np.array(list(par_mean_fx_multivar.values()))*par_scaling_fx["scaler_biopar"],
                                                         cov = par_cov_fx_multivar*par_scaling_fx["scaler_biopar"]**2)
     par_samples_fx = [dist_multivar.rvs(size = int(3*N_samples)).T]
     par_names_fx = list(par_mean_fx_multivar.keys())
-    mode_fx = {}
     for key, dist in par_dist_fx.items(): #samples from univariate distribution
         par_samples_fx.append(dist.rvs(size = int(3*N_samples)).reshape(1,-1))
         par_names_fx.append(key)
-        # mode_fx = 
-    par_samples_hx = []
-    par_names_hx = []
-    for key, dist in par_dist_hx.items(): #samples from univariate distribution
-        par_samples_hx.append(dist.rvs(size = int(3*N_samples)).reshape(1,-1))
-        par_names_hx.append(key)
     
     #concatenate the samples
     par_samples_fx = np.vstack(par_samples_fx)
-    par_samples_hx = np.vstack(par_samples_hx)
     
     #remove values below zero, and get correct dimensionality
     epsilon_sample = 1e-7
     idx_keep = (par_samples_fx > epsilon_sample).all(axis=0)
     par_samples_fx = par_samples_fx[:, idx_keep] #keep obly positive parameters
     par_samples_fx = par_samples_fx[:, :N_samples] #get correct dimension
-    # par_samples_hx = par_samples_hx[:, (par_samples_hx < 0).any(axis=0)] #same for hx
-    par_samples_hx = par_samples_hx[:, :N_samples] 
+
     #Do plotting if required
     plt_output = []
     if plot_par:
@@ -709,19 +567,17 @@ def get_literature_values(N_samples = int(5e3), plot_par = False, plt_kwargs = {
         # print(par_samples_fx_unscaled.shape)
         # print(names_par)
         df_fx = pd.DataFrame(data = par_samples_fx.T/par_scaling_fx["scaler_biopar"], columns = names_par)
-        df_hx = pd.DataFrame(data = par_samples_hx.T, columns = par_names_hx)
         font = {'size': 16}
         matplotlib.rc('font', **font)
         sns_grid_fx = sns.pairplot(df_fx, **plt_kwargs)
         plt.tight_layout()
-        sns_grid_hx = sns.pairplot(df_hx, **plt_kwargs)
-        plt_output = [sns_grid_fx, sns_grid_hx]
+        plt_output = [sns_grid_fx]
     
     #Kalman filter values in the description
-    Q = np.diag(np.ones(4)*1e-2)
+    Q = np.diag(np.ones(4)*1e-6)
     #Measurement noise
     R = np.diag(np.square(sigma_repeatability())) #assume this initially
-    return par_samples_fx, par_samples_hx, par_names_fx, par_names_hx, par_det_fx, par_det_hx, Q, R, plt_output, par_dist_fx, par_scaling_fx
+    return par_samples_fx, par_names_fx, par_det_fx, Q, R, plt_output, par_dist_fx, par_scaling_fx
 
 
 def compute_performance_index_valappil(x_kf, x_ol, x_true, cost_func = "RMSE"):
@@ -950,7 +806,7 @@ def get_param_gamma_dist(mean, std_dev, num_std = 3):
     # alpha = beta**2*std_dev**2#*std_dev**2
     return alpha, loc, beta
 
-def get_sigmapoints_and_weights(par_in, samples = False):
+def get_sigmapoints_and_weights(par_in, samples = False, sqrt_method = scipy.linalg.sqrtm):
     """
     Returns sigma points and weights for the distributions in the container par_dist.
 
@@ -992,7 +848,7 @@ def get_sigmapoints_and_weights(par_in, samples = False):
     #       f"cm4: {cm4}")
     
     #Generate sigma points
-    sigma_points = spc.GenUTSigmaPoints(n) #initialize the class
+    sigma_points = spc.GenUTSigmaPoints(n, sqrt_method = sqrt_method) #initialize the class
     s, w = sigma_points.compute_scaling_and_weights(cov,  #generate scaling and weights
                                                     cm3, 
                                                     cm4)
@@ -1035,10 +891,45 @@ def get_sigmapoints_and_weights_julier(par_in, samples = False, kappa = 0.):
     
     #Generate sigma points
     sigma_points = spc.JulierSigmaPoints(n, kappa = kappa) #initialize the class
-    sigmas, P_sqrt = sigma_points.compute_sigma_points(mean, 
+    sigmas, _, _, P_sqrt = sigma_points.compute_sigma_points(mean, 
                                                cov)
     w = sigma_points.compute_weights()
     return sigmas, w
+def get_sigmapoints_and_weights_scaled(par_in, samples = False, alpha = 1e-3, beta = 2., kappa = 0.):
+    """
+    Returns sigma points and weights for the distributions in the container par_in. Sigma point and weights are made on the assumption that these distributions are symmetrical around the mean (but mean and covariance are calculated based on the distributions in the container par_in)
+
+    Parameters
+    ----------
+    par_in : TYPE list, dict, a container which is iterable by for loop. len(par_in) = n
+        DESCRIPTION. each element contains a scipy.dist
+    samples : TYPE optional, default is False. Boolean
+        DESCRIPTION. If False, then par_in is a container (dict, list) which contains scipy.stats.dist instances. If True, par_in containts samples (typically posterior samples from Bayesian parameter estimation)
+
+    Returns
+    -------
+    sigmas : TYPE np.array((n, (2n+1)))
+        DESCRIPTION. (2n+1) sigma points
+    w : TYPE np.array(2n+1,)
+        DESCRIPTION. Weight for every sigma point
+
+    """
+    n = len(par_in) #dimension of parameters
+    
+    # Compute the required statistics
+    if not samples:
+        mean = np.array([dist.mean() for k, dist in par_in.items()])
+        cov = np.diag([dist.var() for k, dist in par_in.items()])
+    else: #samples == True
+        mean = np.mean(par_in, axis = 1)
+        cov = np.cov(par_in)
+    
+    #Generate sigma points
+    sigma_points = spc.ScaledSigmaPoints(n, alpha = alpha, beta = beta, kappa = kappa) #initialize the class
+    sigmas, wm, wc, P_sqrt = sigma_points.compute_sigma_points(mean, 
+                                               cov)
+    w = sigma_points.compute_weights()
+    return sigmas, wm, wc
 
 def get_lhs_points(dist_dict, N_lhs_dist = 10, plot_mc_samples = False, labels = None):
     """
@@ -1523,46 +1414,7 @@ def get_Q_from_numerical_linearization(F, x, t_span, u, par_nom, par_cov, h = 1e
     jac_p = evaluate_jac_p_num(F, x, t_span, u, par_nom, h = h)
     Q = jac_p @ par_cov @ jac_p.T
     return Q
-# def get_vmean_R_from_lhs(par_lhs, x, dim_y):
-#     N_mc = list(par_lhs.values())[0].shape[0] #the number of MC samples (or LHS)
-#     y = np.zeros((dim_y, N_mc))
-#     par_i = {}
-#     for i in range(N_mc):
-#         for key, val in par_lhs.items():
-#             par_i[key] = val[i]
-#         y[:, i] = hx(x, par_i)
-#     v_lhs = np.mean(y, axis = 1)
-#     R_lhs = np.cov(y)
-#     return v_lhs, R_lhs
 
-def get_v_realizations_from_mc(par_mc, x, dim_y, par_nom):
-    y_nom = hx(x, par_nom)
-    N_mc = list(par_mc.values())[0].shape[0] #the number of MC samples (or LHS)
-    y_stoch = np.zeros((dim_y, N_mc))
-    par_i = {}
-    for i in range(N_mc):
-        for key, val in par_mc.items():
-            par_i[key] = val[i]
-        y_stoch[:, i] = hx(x, par_i)
-    v_stoch = y_stoch - y_nom.reshape(-1,1)
-    return v_stoch
-
-def get_vmean_R_from_mc(par_mc, x, dim_y, par_nom):
-    
-    v_stoch = get_v_realizations_from_mc(par_mc, x, dim_y, par_nom)
-    v_mean = np.mean(v_stoch, axis = 1)
-    R = np.cov(v_stoch)
-    return v_mean, R
-
-def get_vmode_R_from_mc(par_mc, x, dim_y, par_nom, nbins = 20):
-    
-    v_stoch = get_v_realizations_from_mc(par_mc, x, dim_y, par_nom)
-    hist, bin_edges = np.histogram(v_stoch, bins = nbins)
-    idx = np.argmax(hist) #returns the index where there are most samples in the bin
-    mode_limits = np.array([bin_edges[idx], bin_edges[idx+1]]) #the mode is somewhere within these limits
-    v_mode = np.mean(mode_limits)
-    R = np.cov(v_stoch)
-    return v_mode, R
 
 
 def solve_constrained_sigmapoint_updatefunction_qp(Dk, Rk, Pk_prior, yk, sigma_prop, sigma_lb, x0 = None):

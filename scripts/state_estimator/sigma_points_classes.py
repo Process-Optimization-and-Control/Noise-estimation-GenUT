@@ -20,7 +20,7 @@ class SigmaPoints():
     """
     Parent class when sigma points algorithms are constructed. All points tru to estimate mean and covariance of Y, where Y=f(X)
     """
-    def __init__(self, n, sqrt_method=None):
+    def __init__(self, n, sqrt_method = scipy.linalg.sqrtm):
         """
         Init
 
@@ -29,7 +29,7 @@ class SigmaPoints():
         n : TYPE int
             DESCRIPTION. Dimension of x
         sqrt_method : TYPE, optional function
-            DESCRIPTION. The default is None. Method to calculate the square root of a matrix. If None is supplied, scipy.linalg.sqrtm is used (principal matrix square root)
+            DESCRIPTION. The default is scipy.linalg.sqrtm (principal matrix square root). Method to calculate the square root of a matrix. The other choice is typically np.linalg.cholesky
 
         Returns
         -------
@@ -37,10 +37,11 @@ class SigmaPoints():
 
         """
         self.n = n
-        if sqrt_method is None:
-            self.sqrt = scipy.linalg.sqrtm
-        else:
-            self.sqrt = sqrt_method
+        
+        #principal matrix square root or Cholesky factorization (only lower triangular factorization) is supported. Default for np.linalg.cholesky is lower factorization, default for scipy.linalg.cholesky is upper factorization
+        if sqrt_method is scipy.linalg.cholesky:
+            sqrt_method = lambda P: scipy.linalg.cholesky(P, lower = True)
+        self.sqrt = sqrt_method
         
     def num_sigma_points(self):
         """
@@ -85,7 +86,7 @@ class JulierSigmaPoints(SigmaPoints):
 }
     
     """
-    def __init__(self, n, kappa = 0., sqrt_method=None):
+    def __init__(self, n, kappa = 0., sqrt_method = scipy.linalg.sqrtm):
         """
         Init
 
@@ -94,7 +95,7 @@ class JulierSigmaPoints(SigmaPoints):
         n : TYPE int
             DESCRIPTION. Dimension of x
         sqrt_method : TYPE, optional function
-            DESCRIPTION. The default is None. Method to calculate the square root of a matrix. If None is supplied, scipy.linalg.sqrtm is used
+            DESCRIPTION. The default is scipy.linalg.sqrtm (principal matrix square root). Method to calculate the square root of a matrix. The other choice is typically np.linalg.cholesky
         kappa : TYPE, optional float
             DESCRIPTION. The default is 0. If set to (n-3), you minimize error in higher order terms.
 
@@ -105,14 +106,17 @@ class JulierSigmaPoints(SigmaPoints):
 
         """
         super().__init__(n, sqrt_method = sqrt_method)
-        raise ValueError("This class has NOT been verified yet!")
-        if not (kappa == (n-3)):
-            print(f"warning: kappa is not set to kappa = (n-3) = {n-3}, which minimizes the fourth order mismatch. Proceeding with a value of kappa = {kappa}")
+        # print("WARNING: This class has NOT been verified yet")
+        # raise ValueError("This class has NOT been verified yet!")
+        if not (kappa == np.max([(3-n), 0])):
+            print(f"warning: kappa is not set to kappa = max([(3-n),0]) = max([{3-n},0]), which minimizes the fourth order mismatch. Proceeding with a value of kappa = {kappa}")
         self.kappa = kappa
         self.dim_sigma = self.num_sigma_points()
+        self.Wm = self.compute_weights()
+        self.Wc = self.Wm.copy()
         
     # def compute_weights(self)
-    def compute_sigma_points(self, mu, P):
+    def compute_sigma_points(self, mu, P, P_sqrt = None):
         """
         Computes the sigma points based on Julier's paper
 
@@ -122,6 +126,8 @@ class JulierSigmaPoints(SigmaPoints):
             DESCRIPTION. Mean value of X 
         P : TYPE np.array(n,n)
             DESCRIPTION. Covariance matrix of X
+        P_sqrt : TYPE np.array(n,n), optional
+            DESCRIPTION. default is None. If supplied, algorithm does not compute sqrt(P).
 
         Raises
         ------
@@ -152,16 +158,19 @@ class JulierSigmaPoints(SigmaPoints):
         sigmas[:, 0] = mu
         
         try:
-            P_sqrt = self.sqrt((n+self.kappa)*P)
+            sqrt_factor = np.sqrt(n+self.kappa)
+            if P_sqrt is None:
+                P_sqrt = self.sqrt(P)
+            P_sqrt_weight = sqrt_factor*P_sqrt
         except np.linalg.LinAlgError as LinAlgError:
             print(f"(n+kappa)P is not positive definite. Current value is (n+kappa)P = {(n+self.kappa)*P}")
             raise LinAlgError
         
         for i in range(n):
-            sigmas[:, 1 + i] = mu + P_sqrt[i, :]
-            sigmas[:, 1 + n + i] = mu - P_sqrt[i, :]
+            sigmas[:, 1 + i] = mu + P_sqrt_weight[:, i]
+            sigmas[:, 1 + n + i] = mu - P_sqrt_weight[:, i]
         
-        return sigmas, P_sqrt
+        return sigmas, self.Wm, self.Wc, P_sqrt
         
     def compute_weights(self):
         """
@@ -179,6 +188,134 @@ class JulierSigmaPoints(SigmaPoints):
         weights = np.array([1/(2*(n + self.kappa)) for i in range(dim_sigma)])
         weights[0] = self.kappa/(n + self.kappa)
         return weights
+
+class ScaledSigmaPoints(SigmaPoints):
+    """
+    From
+    JULIER, S. J. The Scaled Unscented Transformation.  Proceedings of the American Control Conference, 2002 2002 Anchorage. 4555-4559 vol.6.
+
+    """
+    
+    def __init__(self, n, alpha = 1e-3, beta = 2., kappa = 0., sqrt_method = scipy.linalg.sqrtm, suppress_init_warning = False, force_Wm_sum_zero = False):
+        """
+        Init
+
+        Parameters
+        ----------
+        n : TYPE int
+            DESCRIPTION. Dimension of x
+        sqrt_method : TYPE, optional function
+            DESCRIPTION. The default is scipy.linalg.sqrtm (principal matrix square root). Method to calculate the square root of a matrix. The other choice is typically np.linalg.cholesky
+        alpha : TYPE, optional float
+            DESCRIPTION. The default is 1e-3. Determines the scaling of the sigma-points (how far away they are from the mean.
+        kappa : TYPE, optional float
+            DESCRIPTION. The default is 0. If set to (n-3), you minimize error in higher order terms.
+
+
+        Returns
+        -------
+        None.
+
+        """
+        super().__init__(n, sqrt_method = sqrt_method)
+        self.alpha = alpha
+        self.beta = beta
+        self.kappa = kappa
+        self.force_Wm_sum_zero = force_Wm_sum_zero
+        self.lam = self.calculate_lam()
+        if ((kappa != np.max([(3-n), 0])) and (suppress_init_warning == False)):
+            print(f"warning: kappa is not set to kappa = max([(3-n),0]) = max([{3-n},0]), which minimizes the fourth order mismatch. Proceeding with a value of kappa = {kappa}")
+        self.dim_sigma = self.num_sigma_points()
+        self.Wm, self.Wc = self.compute_weights(force_Wm_sum_zero = force_Wm_sum_zero)
+    
+    def calculate_lam(self):
+        lam = (self.alpha**2)*(self.n + self.kappa) - self.n
+        return lam
+        
+    def compute_weights(self, force_Wm_sum_zero = False):
+        """
+        Computes the weights
+
+        Returns
+        -------
+        weights : TYPE np.array(dim_sigma,)
+            DESCRIPTION. Weights for every sigma points
+
+        """
+        n = self.n
+        dim_sigma = self.dim_sigma
+        alpha = self.alpha
+        beta = self.beta
+        
+        lam = self.calculate_lam()
+        
+        Wm = np.array([1/(2*(n + lam)) for i in range(dim_sigma)])
+        Wc = Wm.copy()
+        
+        if force_Wm_sum_zero:
+            Wm[0] = 1 - Wm[1:].sum()
+        else:
+            Wm[0] = lam/(lam + n)
+        Wc[0] = lam/(lam + n) + (1 - alpha**2 + beta) #this does not add up to 1 (Wm.sum()=1, Wm.sum() != 1)
+        return Wm, Wc
+    
+    def compute_sigma_points(self, mu, P, P_sqrt = None):
+        """
+        Computes the sigma points based on Julier's paper
+
+        Parameters
+        ----------
+        mu : TYPE np.array(n,)
+            DESCRIPTION. Mean value of X 
+        P : TYPE np.array(n,n)
+            DESCRIPTION. Covariance matrix of X
+        P_sqrt : TYPE np.array(n,n), optional
+            DESCRIPTION. default is None. If supplied, algorithm does not compute sqrt(P).
+
+        Raises
+        ------
+        ValueError
+            DESCRIPTION. Shapes are wrong
+        LinAlgError
+            DESCRIPTION. P is not positiv definite and symmetric
+
+        Returns
+        -------
+        sigmas : TYPE np.array(n, dim_sigma)
+            DESCRIPTION. sigma points
+        P_sqrt : TYPE np.array(n,n)
+            DESCRIPTION. sqrt((n+kappa)P). Can be inspected if something goes wrong.
+
+        """
+        if not self.n == mu.shape[0]:
+            raise ValueError(f" self.n = {self.n} while mu.shape = {mu.shape}. mu.shape[0] must match self.n!")
+        
+        if not ((self.n == P.shape[0]) and (self.n == P.shape[1])):
+            raise ValueError(f"P.shape = {P.shape}, it must be ({self.n, self.n})")
+        
+        
+        n = self.n
+        dim_sigma = self.dim_sigma
+        
+        sigmas = np.zeros((n, dim_sigma))
+        sigmas[:, 0] = mu
+        
+        try:
+            sqrt_factor = np.sqrt(n+self.lam)
+            if P_sqrt is None:
+                P_sqrt = self.sqrt(P)
+            P_sqrt_weight = sqrt_factor*P_sqrt
+        except np.linalg.LinAlgError as LinAlgError:
+            print(f"(n+kappa)P is not positive definite. Current value is (n+kappa)P = {(n+self.kappa)*P}")
+            raise LinAlgError
+        
+        for i in range(n):
+            sigmas[:, 1 + i] = mu + P_sqrt_weight[:, i]
+            sigmas[:, 1 + n + i] = mu - P_sqrt_weight[:, i]
+        
+        return sigmas, self.Wm, self.Wc, P_sqrt
+        
+        
         
 class GenUTSigmaPoints(SigmaPoints):
     """
@@ -197,7 +334,7 @@ issn = {2331-8422},
 
 
     """
-    def __init__(self, n, sqrt_method=None):
+    def __init__(self, n, positive_sigmas = False, k_positive = 1 - 1e-8, sqrt_method = scipy.linalg.sqrtm):
         """
         Init
 
@@ -206,7 +343,7 @@ issn = {2331-8422},
         n : TYPE int
             DESCRIPTION. Dimension of x
         sqrt_method : TYPE, optional function
-            DESCRIPTION. The default is None. Method to calculate the square root of a matrix. If None is supplied, scipy.linalg.cholesky is used
+            DESCRIPTION. The default is scipy.linalg.sqrtm (principal matrix square root). Method to calculate the square root of a matrix. The other choice is typically np.linalg.cholesky
 
         Returns
         -------
@@ -215,6 +352,8 @@ issn = {2331-8422},
         """
         super().__init__(n, sqrt_method = sqrt_method)
         self.dim_sigma = self.num_sigma_points()
+        self.positive_sigmas = positive_sigmas
+        self.k_positive = k_positive
         
     def compute_scaling_and_weights(self, P, S, K, s1 = None):
         """
@@ -284,8 +423,7 @@ issn = {2331-8422},
         s1 = .5*(-S_std + np.sqrt(4*K_std - 3*np.square(S_std)))
         return s1
     
-    # def compute_sigma_points(self, mu, P, s):
-    def compute_sigma_points(self, mu, P, S = None, K = None, s1 = None, sqrt_method = None):
+    def compute_sigma_points(self, mu, P, S = None, K = None, s1 = None, sqrt_method = None, P_sqrt = None, positive_sigmas = None, k_positive = None):
         """
         Computes the sigma points
 
@@ -301,6 +439,8 @@ issn = {2331-8422},
             DESCRIPTION. 4th central moment of X. Can be computed by scipy.stats.moments(data, moment=4)
         s1 : TYPE, optional np.array(n,)
             DESCRIPTION. The default is None. First part of scaling arrays. s1> 0 for every element. If None, algorithm computes the suggested values in the article.
+        P_sqrt : TYPE np.array(n,n), optional
+            DESCRIPTION. default is None. If supplied, algorithm does not compute sqrt(P).
 
         Raises
         ------
@@ -319,6 +459,15 @@ issn = {2331-8422},
             DESCRIPTION. sqrt(P). Can be inspected if something goes wrong.
 
         """
+        if positive_sigmas is None:
+            positive_sigmas = self.positive_sigmas
+        assert isinstance(positive_sigmas, bool), f"positive_sigmas must be a boolean, now it is {type(positive_sigmas)}"
+        
+        if k_positive is None:
+            k_positive = self.k_positive
+        assert isinstance(k_positive, float), f"k_positive must be a float, now it is {type(k_positive)}"
+        assert ((k_positive > 0) and (k_positive < 1)), f"k_positive must be in hte range (0,1), excluding end-point values. Current value is {k_positive}"
+        
         if not self.n == mu.shape[0]:
             raise ValueError(f" self.n = {self.n} while mu.shape = {mu.shape}. mu.shape[0] must match self.n!")
         
@@ -340,7 +489,10 @@ issn = {2331-8422},
         sigmas = np.zeros((n, dim_sigma))
         sigmas[:, 0] = mu
         
-        self.P_sqrt = sqrt_method(P)
+        if P_sqrt is None:
+            self.P_sqrt = sqrt_method(P)
+        else:
+            self.P_sqrt = P_sqrt
         
         #compute scaling and weights
         self.s, Wm = self.compute_scaling_and_weights(P, S, K, s1 = s1)
@@ -349,12 +501,40 @@ issn = {2331-8422},
         for i in range(n):
             sigmas[:, 1 + i] = mu - self.s[i]*self.P_sqrt[:, i]
             sigmas[:, 1 + n + i] = mu + self.s[n + i]*self.P_sqrt[:, i]
+            
+        if (positive_sigmas and (sigmas < 0).any()):
+            assert (mu > 0).all(), "When constraining sigma-points to be positive, the assumption is that the mean is positive"
+            self.sigmas_orig = sigmas
+            # idx_neg = np.column_stack(np.where(sigmas[:, 1:1+n] < 0))
+            idx_neg = np.column_stack(np.where(sigmas[:, 1:] < 0))
+            r = np.unique(idx_neg[:, 0])
+            c = np.unique(idx_neg[:, 1])
+            self.idx_neg = idx_neg
+            # r, c = np.where(sigmas < 0) #finds rows, columns of negative points
+            # self.r = r
+            # self.c = c
+            
+            for ci in c: #update s1 vector
+                self.s[ci] = k_positive*np.min(np.abs(mu / self.P_sqrt[:, ci]))
+            s1 = self.s[:n]
+            
+            #calculate new scaling parameters and weights
+            self.s, Wm = self.compute_scaling_and_weights(P, S, K, s1 = s1)
+            Wc = Wm.copy()
+            
+            #new sigma-points            
+            for i in range(n):
+                sigmas[:, 1 + i] = mu - self.s[i]*self.P_sqrt[:, i]
+                sigmas[:, 1 + n + i] = mu + self.s[n + i]*self.P_sqrt[:, i]
+            self.sigmas = sigmas
+            assert (sigmas >= 0).all(), "Sth wrong when constraining sigma-points to be positive"                
         self.sigmas = sigmas
         self.Wm = Wm
         self.Wc = Wc
         return sigmas, Wm, Wc, self.P_sqrt
     
-    def compute_cm4_isserlis_for_multivariate_normal(self, P):
+    @staticmethod
+    def compute_cm4_isserlis_for_multivariate_normal(P):
         """
         Calculate 4th central moment from Isserli's theorem based on Equation 2.42 in 
         Barfoot, T. (2017). State Estimation for Robotics. Cambridge: Cambridge University Press. doi:10.1017/9781316671528
@@ -375,7 +555,41 @@ issn = {2331-8422},
         cm4 = P @ (np.trace(P)*I + 2*P)
         return np.diag(cm4)
 
-#Sigma points are implemented in myfilter-directory
+
+def sqrt_method_robust(P, sqrt_method):
+    try:
+        return sqrt_method(P)
+    except np.linalg.LinAlgError:
+        #increase eigenvalues. Add identity matrix times epsilon on and when it is successfull we're ok
+        
+        #obtain "original" standard deviation. If the NUKF is used, this is 1 and this step is redundant
+        std_dev_orig = np.sqrt(np.diag(P))
+        dim_P = P.shape[0]
+        success = False
+        epsilon = 1e-10
+        P2 = P + np.eye(dim_P)*epsilon
+        n_iter = 0
+        while not success:
+            print(f"P2 = P + I*{epsilon}")
+            try:
+                P_sqrt = sqrt_method(P2)
+                success = True
+            except np.linalg.LinAlgError:
+                epsilon *= 10 #increase epsilon
+                P2 += np.eye(dim_P)*epsilon #increase eigenvalues further
+                n_iter += 1
+                if n_iter > 8:
+                    raise ValueError(f"sqrt_method did not converge. Epsilon is now {epsilon}.")
+        
+        #Now we know that we can take the sqrt_method. But we need to get correct standard deviations again since we added on the diagonal.
+        std_dev = np.sqrt(np.diag(P2))
+        std_dev_inv = np.diag(1/std_dev)
+        corr = std_dev_inv @ P2 @ std_dev_inv
+        corr_sqrt = sqrt_method(corr) #this should work now
+        print(f"Psqrt success")
+        #return with original standard deviation
+        return np.diag(std_dev_orig) @ corr_sqrt
+
 
 # class ParametricUncertaintyGenUTSigmaPoints(GenUTSigmaPoints):
     
