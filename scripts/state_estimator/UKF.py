@@ -76,7 +76,7 @@ class UKFBase():
     """
 
     def __init__(self, fx, hx, points_x, Q, R, 
-                 w_mean = None, v_mean = None, name=None, check_negative_sigmas = True):
+                 w_mean = None, v_mean = None, name=None, check_negative_sigmas = False):
         """
         Create a Kalman filter. IMPORTANT: Additive white noise is assumed!
 
@@ -265,13 +265,13 @@ class UKFBase():
 class UKF_additive_noise(UKFBase):
     
     def __init__(self, x0, P0, fx, hx, points_x, Q, R, 
-                 w_mean = None, v_mean = None, name=None):
+                 w_mean = None, v_mean = None, name=None, check_negative_sigmas = False):
         """
         Create a Kalman filter. IMPORTANT: Additive white noise is assumed!
 
         """
         super().__init__(fx, hx, points_x, Q, R, 
-                     w_mean = None, v_mean = None, name=None)
+                     w_mean = w_mean, v_mean = v_mean, name = name, check_negative_sigmas = check_negative_sigmas)
         
         dim_x = x0.shape[0]
         assert (dim_x, dim_x) == P0.shape #check input
@@ -463,10 +463,10 @@ class NUKF_additive_noise_corr_lim(UKFBase):
     def __init__(self, x0, P0, fx, hx, points_x, Q, R, 
                  w_mean = None, v_mean = None, 
                  corr_post_lim = np.inf, corr_prior_lim = np.inf, 
-                 corr_y_lim = np.inf, corr_xy_lim = np.inf, UT = None, name=None):
+                 corr_y_lim = np.inf, corr_xy_lim = np.inf, UT = None, name=None, check_negative_sigmas = False):
         
         super().__init__(fx, hx, points_x, Q, R, 
-                     w_mean = w_mean, v_mean = v_mean, name = name)
+                     w_mean = w_mean, v_mean = v_mean, name = name, check_negative_sigmas = check_negative_sigmas)
         
         dim_x = x0.shape[0]
         assert (dim_x, dim_x) == P0.shape #check input

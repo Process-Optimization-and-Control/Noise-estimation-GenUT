@@ -1,21 +1,7 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Jan  7 09:34:34 2022
-
-@author: halvorak
-"""
-
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Dec 21 15:47:32 2021
-
-@author: halvorak
-"""
 
 # -*- coding: utf-8 -*-
 """
 Created on Mon Nov 22 09:10:12 2021
-
 @author: halvorak
 """
 
@@ -50,7 +36,7 @@ from state_estimator import UKF
 # import sigma_points_classes as spc
 from state_estimator import unscented_transform as ut
 from state_estimator import myExceptions
-import utils_batch_gasreactor as utils_gr
+import utils_bioreactor_tuveri as utils_br
 font = {'size': 14}
 matplotlib.rc('font', **font)
 # cmap = "tab10"
@@ -58,7 +44,7 @@ matplotlib.rc('font', **font)
 
 
 #%% Set N simulation times
-N_sim = 1000 #this is how many times to repeat each iteration
+N_sim = 1 #this is how many times to repeat each iteration
 # points_x = "scaled"
 points_x = "genut"
 x_var = ["V", "X", "S", "CO2"]
@@ -69,8 +55,8 @@ cost_func_type = "RMSE" #other valid option is "valappil"
 filters_to_run = ["gut", 
                     # "ut",
                             "lin", 
-                                "lin_n", #numerical derivative 
-                                  "mc", 
+                                # "lin_n", #numerical derivative 
+                                  # "mc", 
                                  # "lhs",
                     "qf"
                   ]
@@ -137,7 +123,7 @@ while Ni < N_sim:
         sqrt_method = lambda P: scipy.linalg.cholesky(P, lower = True)
         
         #%% Import parameters
-        x0, P0, par_mean_fx, par_cov_fx, Q, R = utils_gr.get_literature_values(N_samples = int(5e3), plot_par = False)
+        par_samples_fx, par_names_fx, par_det_fx, Q_nom, R_nom, plt_output, par_dist_fx, par_scaling_fx = utils_br.get_literature_values(N_samples = int(5e3), plot_par = False)
         
         par_cov_fx = np.cov(par_samples_fx)
         dim_par_fx = par_cov_fx.shape[0]
@@ -169,8 +155,8 @@ while Ni < N_sim:
             
         #%% Define dimensions and initialize arrays
                 
-        x0 = utils_gr.get_x0_literature()
-        u0 = utils_gr.get_u0_literature()
+        x0 = utils_br.get_x0_literature()
+        u0 = utils_br.get_u0_literature()
         
         dim_x = x0.shape[0]
         dim_par_fx = len(par_true_fx)
@@ -182,7 +168,7 @@ while Ni < N_sim:
         t = np.linspace(0, t_end, int(t_end/dt_y))
         dim_t = t.shape[0]
         
-        y0 = utils_gr.hx(x0)
+        y0 = utils_br.hx(x0)
         dim_y = y0.shape[0]
         y = np.zeros((dim_y, dim_t))
         y[:, 0] = y0*np.nan
@@ -199,8 +185,8 @@ while Ni < N_sim:
         #                         60) #min/h ==> L/h
         
         #UKF initial states
-        P0 = utils_gr.get_P0_literature()
-        x0_kf = utils_gr.get_x0_kf_random(eps=1e-4) # random value from x0_kf from the multivariate normal dist with (mean=x0_true, cov = P0) and x0_kf >= eps
+        P0 = utils_br.get_P0_literature()
+        x0_kf = utils_br.get_x0_kf_random(eps=1e-4) # random value from x0_kf from the multivariate normal dist with (mean=x0_true, cov = P0) and x0_kf >= eps
         
         #Central moments for the GenUT sigma-points
         cm3_par = scipy.stats.moment(par_samples_fx, 
@@ -275,8 +261,9 @@ while Ni < N_sim:
         # kappa = 3-dim_x
         positive_sigmas_x = False
         k_positive = 1 - 1e-8
+        check_negative_sigmas = False
         if points_x == "scaled":
-            alpha = 1e-2
+            alpha = 1e-3
             beta = 2.
             kappa = 0.#3-dim_x
             points_gut = ukf_sp.ScaledSigmaPoints(dim_x,
@@ -287,7 +274,7 @@ while Ni < N_sim:
             points_gut = ukf_sp.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
         
         fx_ukf_gut = None #updated later in the simulation
-        kfc_gut = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_gut, Q_nom, R_nom, name="gut") 
+        kfc_gut = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_br.hx, points_gut, Q_nom, R_nom, name="gut", check_negative_sigmas = check_negative_sigmas) 
         
         # x2 = np.array([1.40452758e+00, 7.33369253e-01, 1.95722776e+01, 1.11406253e-02])
         # P2 = np.array([[ 8.00409579e-03, -2.16842082e-04,  1.60868854e-06,
@@ -314,7 +301,7 @@ while Ni < N_sim:
                                                     kappa_ut, sqrt_method = sqrt_method)
         elif points_x == "genut":
             points_ut = ukf_sp.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
-        kfc_ut = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_ut, Q_nom, R_nom, name="ut")
+        kfc_ut = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_br.hx, points_ut, Q_nom, R_nom, name="ut", check_negative_sigmas = check_negative_sigmas)
         #%% Define UKF with adaptive Q, R from MC WITH mean adjustment of w
         if points_x == "scaled":
             alpha_mc = copy.copy(alpha)
@@ -326,7 +313,7 @@ while Ni < N_sim:
                                                     kappa_mc, sqrt_method = sqrt_method)
         elif points_x == "genut":
             points_mc = ukf_sp.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
-        kfc_mc = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_mc, Q_nom, R_nom, name="mc")
+        kfc_mc = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_br.hx, points_mc, Q_nom, R_nom, name="mc", check_negative_sigmas = check_negative_sigmas)
         
         #%% Define UKF with adaptive Q, R from linearized approach
         if points_x == "scaled":
@@ -340,7 +327,7 @@ while Ni < N_sim:
         elif points_x == "genut":
             points_lin = ukf_sp.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
         
-        kfc_lin = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_lin, Q_nom, R_nom, name="lin")
+        kfc_lin = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_br.hx, points_lin, Q_nom, R_nom, name="lin", check_negative_sigmas = check_negative_sigmas)
        
         #%% Define UKF with adaptive Q, R from numerical linearization approach
         if points_x == "scaled":
@@ -354,7 +341,7 @@ while Ni < N_sim:
         elif points_x == "genut":
             points_lin_n = ukf_sp.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
         
-        kfc_lin_n = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_lin_n, Q_nom, R_nom, name="lin_n")
+        kfc_lin_n = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_br.hx, points_lin_n, Q_nom, R_nom, name="lin_n", check_negative_sigmas = check_negative_sigmas)
        
         #%% Define UKF with adaptive Q, R from LHS with mean adjustment
         if points_x == "scaled":
@@ -368,7 +355,7 @@ while Ni < N_sim:
                                                     kappa_lhs, sqrt_method = sqrt_method)
         elif points_x == "genut":
             points_lhs = ukf_sp.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
-        kfc_lhs = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_lhs, Q_nom, R_nom, name="lhs")
+        kfc_lhs = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_br.hx, points_lhs, Q_nom, R_nom, name="lhs", check_negative_sigmas = check_negative_sigmas)
         
         #%% Define UKF with fixed Q, R (hand tuned)
         if points_x == "scaled":
@@ -381,16 +368,16 @@ while Ni < N_sim:
                                                     kappa_qf, sqrt_method = sqrt_method)
         elif points_x == "genut":
             points_qf = ukf_sp.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
-        kfc_qf = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_qf, Q_nom, R_nom, name="qf")
+        kfc_qf = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_br.hx, points_qf, Q_nom, R_nom, name="qf", check_negative_sigmas = check_negative_sigmas)
         
         #%% Get parametric uncertainty of fx by GenUT. Generate sigmapoints first ("offline")
-        sigmas_fx_gut, w_fx_gut = utils_gr.get_sigmapoints_and_weights(par_samples_fx, samples = True, sqrt_method = sqrt_method)
+        sigmas_fx_gut, w_fx_gut = utils_br.get_sigmapoints_and_weights(par_samples_fx, samples = True, sqrt_method = sqrt_method)
         list_dist_fx_keys = list(par_names_fx.copy()) # list of parameters with distribution. This variable can be deleted in this case study actually
         
         #%% Get parametric uncertainty of fx by UT. Generate sigmapoints first ("offline")
         kappa_par_ut = dim_par_fx - 3 # 0
-        sigmas_fx_ut, wm_fx_ut, wc_fx_ut = utils_gr.get_sigmapoints_and_weights_scaled(par_samples_fx, samples = True, kappa = kappa_par_ut)
-        # sigmas_fx_ut, w_fx_ut = utils_gr.get_sigmapoints_and_weights_julier(par_samples_fx, samples = True, kappa = kappa_par_ut)
+        sigmas_fx_ut, wm_fx_ut, wc_fx_ut = utils_br.get_sigmapoints_and_weights_scaled(par_samples_fx, samples = True, kappa = kappa_par_ut)
+        # sigmas_fx_ut, w_fx_ut = utils_br.get_sigmapoints_and_weights_julier(par_samples_fx, samples = True, kappa = kappa_par_ut)
         
         #%% N_MC samples, random sampling
         # N_mc_dist = int(50)
@@ -399,7 +386,7 @@ while Ni < N_sim:
         N_mc_dist = int(1e3)
         
         #par_mc_fx is a np.array((dim_par, N_mc_dist)) with random amples from par_samples_fx
-        par_mc_fx, sns_grid_mc = utils_gr.get_mc_points(
+        par_mc_fx, sns_grid_mc = utils_br.get_mc_points(
             par_samples_fx, 
             N_mc_dist = N_mc_dist, 
             plot_mc_samples = False,
@@ -438,7 +425,7 @@ while Ni < N_sim:
         kfc_qf.Q = Q_qf
         
         #%% Casadi integrator, jacobian df/dp and solvers for the mode
-        F,jac_p_func,_,_,_,_,_,_,_,_,_,_,_= utils_gr.ode_model_plant()
+        F,jac_p_func,_,_,_,_,_,_,_,_,_,_,_= utils_br.ode_model_plant()
         
         #%% Simulate the plant and UKF
         
@@ -447,7 +434,7 @@ while Ni < N_sim:
             t_span = (t[i-1], t[i])
             
             #Simulate the true plant
-            x_true[:, i] = utils_gr.integrate_ode(F, 
+            x_true[:, i] = utils_br.integrate_ode(F, 
                                                   x_true[:,i-1],
                                                   t_span, 
                                                   u[:, i-1],
@@ -458,7 +445,7 @@ while Ni < N_sim:
             # x_true[neg_xtrue_val, i] = 1e-10
             
             #Simulate the open loop (kf parameters and starting point)
-            x_ol[:, i] = utils_gr.integrate_ode(F, 
+            x_ol[:, i] = utils_br.integrate_ode(F, 
                                                 x_ol[:,i-1], 
                                                 t_span, 
                                                 u[:, i-1], 
@@ -469,7 +456,7 @@ while Ni < N_sim:
             
             #Make a new measurement
             vk = np.array([np.random.normal(0, sig_i) for sig_i in np.sqrt(np.diag(R_nom))])
-            y[:, i] = utils_gr.hx(x_true[:, i]) + vk
+            y[:, i] = utils_br.hx(x_true[:, i]) + vk
             
             #Control inputs for the plant. 
             control_law = 1 
@@ -516,10 +503,10 @@ while Ni < N_sim:
             ts_gut = timeit.default_timer()
             for i in range(1, dim_t):
                 t_span = (t[i-1], t[i])
-                x_nom_gut = utils_gr.integrate_ode(F, x_post_gut[:,i-1], t_span, u[:, i-1], par_kf_fx)
+                x_nom_gut = utils_br.integrate_ode(F, x_post_gut[:,i-1], t_span, u[:, i-1], par_kf_fx)
                 
                 #function for calculating Qk
-                fx_gen_Q_gut = lambda si: utils_gr.fx_for_UT_gen_Q(si, list_dist_fx_keys.copy(), F, x_post_gut[:, i-1], t_span, u[:, i-1], par_kf_fx.copy()) - x_nom_gut
+                fx_gen_Q_gut = lambda si: utils_br.fx_for_UT_gen_Q(si, list_dist_fx_keys.copy(), F, x_post_gut[:, i-1], t_span, u[:, i-1], par_kf_fx.copy()) - x_nom_gut
                 
                 w_mean_gut, Q_gut = ut.unscented_transform_w_function_eval(sigmas_fx_gut.copy(), w_fx_gut, w_fx_gut, fx_gen_Q_gut, first_yi = np.zeros(dim_x)) #calculate Qk. The first propagated sigma-point contains only zeros
                
@@ -528,14 +515,14 @@ while Ni < N_sim:
                 w_gut_hist[:, i] = w_mean_gut #Save w_mean history
                 Q_gut_hist[:, i] = np.diag(Q_gut) #Save Q history
                 
-                # fx_ukf_gut = lambda x: (utils_gr.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
+                # fx_ukf_gut = lambda x: (utils_br.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
                 #                                 + w_mean_gut
                 #                                 ) #prediction function
                 # kfc_gut.predict(fx = fx_ukf_gut) #predict
-                fx_ukf_gut = lambda x: utils_gr.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
+                fx_ukf_gut = lambda x: utils_br.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
                 kfc_gut.predict(fx = fx_ukf_gut, w_mean = w_mean_gut) #predict
                 
-                hx_gut = lambda x_in: utils_gr.hx(x_in)
+                hx_gut = lambda x_in: utils_br.hx(x_in)
                 kfc_gut.update(y[:, i], hx = hx_gut)
                 
                 # raise ValueError
@@ -552,10 +539,10 @@ while Ni < N_sim:
             for i in range(1, dim_t):
                 t_span = (t[i-1], t[i])
                 
-                x_nom_ut = utils_gr.integrate_ode(F, x_post_ut[:,i-1], t_span, u[:, i-1], par_kf_fx)
+                x_nom_ut = utils_br.integrate_ode(F, x_post_ut[:,i-1], t_span, u[:, i-1], par_kf_fx)
                 
                 #function for calculating Qk
-                fx_gen_Q_ut = lambda si: utils_gr.fx_for_UT_gen_Q(si, list_dist_fx_keys.copy(), F, x_post_ut[:, i-1], t_span, u[:, i-1], par_kf_fx.copy()) - x_nom_ut
+                fx_gen_Q_ut = lambda si: utils_br.fx_for_UT_gen_Q(si, list_dist_fx_keys.copy(), F, x_post_ut[:, i-1], t_span, u[:, i-1], par_kf_fx.copy()) - x_nom_ut
                 
                 
                 w_mean_ut, Q_ut = ut.unscented_transform_w_function_eval(sigmas_fx_ut.copy(), wm_fx_ut, wc_fx_ut, fx_gen_Q_ut, first_yi = np.zeros(dim_x)) #calculate Qk. The first propagated sigma-point contains only zeros
@@ -564,7 +551,7 @@ while Ni < N_sim:
                 kfc_ut.Q = Q_ut #assign to filter
                 w_ut_hist[:, i] = w_mean_ut #Save w_mean history
                 Q_ut_hist[:, i] = np.diag(Q_ut) #Save Q history
-                fx_ukf_ut = lambda x: utils_gr.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
+                fx_ukf_ut = lambda x: utils_br.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
                 kfc_ut.predict(fx = fx_ukf_ut, w_mean = w_mean_ut) #predict
             
                 kfc_ut.update(y[:, i])
@@ -581,7 +568,7 @@ while Ni < N_sim:
             for i in range(1, dim_t):
                 t_span = (t[i-1], t[i])
     
-                w_mean_lhs, Q_lhs = utils_gr.get_wmean_Q_from_mc(par_lhs_fx.copy(), #get_wmeanXXX or get_wmodeXXX
+                w_mean_lhs, Q_lhs = utils_br.get_wmean_Q_from_mc(par_lhs_fx.copy(), #get_wmeanXXX or get_wmodeXXX
                                                                 F,
                                                                 x_post_lhs[:, i-1], 
                                                                 t_span, 
@@ -591,7 +578,7 @@ while Ni < N_sim:
                 kfc_lhs.Q = Q_lhs #assign to filter
                 w_lhs_hist[:, i] = w_mean_lhs #Save w_mean history
                 Q_lhs_hist[:, i] = np.diag(Q_lhs) #Save Q history
-                fx_ukf_lhs = lambda x: utils_gr.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
+                fx_ukf_lhs = lambda x: utils_br.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
                 kfc_lhs.predict(fx = fx_ukf_lhs, w_mean = w_mean_lhs)
     
                 kfc_lhs.update(y[:, i])
@@ -609,15 +596,15 @@ while Ni < N_sim:
             for i in range(1, dim_t):
                 t_span = (t[i-1], t[i])
                 
-                Q_lin = utils_gr.get_Q_from_linearization(jac_p_func, 
+                Q_lin = utils_br.get_Q_from_linearization(jac_p_func, 
                                                           x_post_lin[:, i-1], t_span, u[:, i-1], par_kf_fx.copy(), par_cov_fx)
                 Q_lin = Q_lin + Q_diag_min #robustness/non-zero on diagonals
                 kfc_lin.Q = Q_lin #assign to filter
                 Q_lin_hist[:, i] = np.diag(Q_lin) #Save Q history
-                fx_ukf_lin = lambda x: utils_gr.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
+                fx_ukf_lin = lambda x: utils_br.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
                 kfc_lin.predict(fx = fx_ukf_lin)
                 
-                hx_lin = lambda x_in: utils_gr.hx(x_in) 
+                hx_lin = lambda x_in: utils_br.hx(x_in) 
                 kfc_lin.update(y[:, i], hx = hx_lin)
         
                 x_post_lin[:, i] = kfc_lin.x_post
@@ -632,12 +619,12 @@ while Ni < N_sim:
            for i in range(1, dim_t):
                t_span = (t[i-1], t[i])
                
-               Q_lin_n = utils_gr.get_Q_from_numerical_linearization(F, 
+               Q_lin_n = utils_br.get_Q_from_numerical_linearization(F, 
                                                          x_post_lin_n[:, i-1], t_span, u[:, i-1], par_kf_fx.copy(), par_cov_fx)
                Q_lin_n = Q_lin_n + Q_diag_min #robustness/non-zero on diagonals
                kfc_lin_n.Q = Q_lin_n #assign to filter
                Q_lin_n_hist[:, i] = np.diag(Q_lin_n) #Save Q history
-               fx_ukf_lin_n = lambda x: utils_gr.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
+               fx_ukf_lin_n = lambda x: utils_br.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
                kfc_lin_n.predict(fx = fx_ukf_lin_n)
                
                kfc_lin_n.update(y[:, i])
@@ -654,7 +641,7 @@ while Ni < N_sim:
             for i in range(1, dim_t):
                 t_span = (t[i-1], t[i])
                     
-                w_mean_mc, Q_mc = utils_gr.get_wmean_Q_from_mc(par_mc_fx.copy(), #get_wmeanXXX or get_wmodeXXX
+                w_mean_mc, Q_mc = utils_br.get_wmean_Q_from_mc(par_mc_fx.copy(), #get_wmeanXXX or get_wmodeXXX
                                                                 F,
                                                                 x_post_mc[:, i-1], 
                                                                 t_span, 
@@ -664,7 +651,7 @@ while Ni < N_sim:
                 w_mc_hist[:, i] = w_mean_mc #Save w_mean history
                 Q_mc_hist[:, i] = np.diag(Q_mc) #Save Q history
                 kfc_mc.Q = Q_mc #assign to filter
-                fx_ukf_mc = lambda x: utils_gr.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
+                fx_ukf_mc = lambda x: utils_br.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
                 kfc_mc.predict(fx = fx_ukf_mc, w_mean = w_mean_mc)
             
                 kfc_mc.update(y[:, i])
@@ -680,10 +667,10 @@ while Ni < N_sim:
             for i in range(1, dim_t):
                 t_span = (t[i-1], t[i])
                 
-                fx_ukf_qf = lambda x: utils_gr.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
+                fx_ukf_qf = lambda x: utils_br.integrate_ode(F, x, t_span, u[:, i-1], par_kf_fx)
                 kfc_qf.predict(fx = fx_ukf_qf)
                     
-                hx_qf = lambda x_in: utils_gr.hx(x_in) 
+                hx_qf = lambda x_in: utils_br.hx(x_in) 
                 kfc_qf.update(y[:, i], hx = hx_qf)
         
                 x_post_qf[:, i] = kfc_qf.x_post
@@ -697,16 +684,16 @@ while Ni < N_sim:
         value_filter_not_run = 1 #same cost as OL response
        
         if "gut" in filters_to_run:
-            j_valappil_gut[:, Ni] = utils_gr.compute_performance_index_valappil(
+            j_valappil_gut[:, Ni] = utils_br.compute_performance_index_valappil(
                 x_post_gut, 
                                                                              x_ol, 
                                                                              x_true, cost_func = cost_func_type)
-            within_band_1s_gut = utils_gr.truth_within_estimate(x_true, 
+            within_band_1s_gut = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_gut, 
                                                                  P_diag_post_gut, 
                                                                  sigma_multiplier = 1) #get a boolean vector
             consistency_1s_gut[:, Ni] = np.sum(within_band_1s_gut, axis = 1)/dim_t #% time within band
-            within_band_2s_gut = utils_gr.truth_within_estimate(x_true, 
+            within_band_2s_gut = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_gut, 
                                                                  P_diag_post_gut, 
                                                                  sigma_multiplier = 2) #get a boolean vector
@@ -715,16 +702,16 @@ while Ni < N_sim:
         else:
             j_valappil_gut[:, Ni] = value_filter_not_run
         if "ut" in filters_to_run:
-            j_valappil_ut[:, Ni] = utils_gr.compute_performance_index_valappil(
+            j_valappil_ut[:, Ni] = utils_br.compute_performance_index_valappil(
                 x_post_ut, 
                                                                              x_ol, 
                                                                              x_true, cost_func = cost_func_type)
-            within_band_1s_ut = utils_gr.truth_within_estimate(x_true, 
+            within_band_1s_ut = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_ut, 
                                                                  P_diag_post_ut, 
                                                                  sigma_multiplier = 1) #get a boolean vector
             consistency_1s_ut[:, Ni] = np.sum(within_band_1s_ut, axis = 1)/dim_t #% time within band
-            within_band_2s_ut = utils_gr.truth_within_estimate(x_true, 
+            within_band_2s_ut = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_ut, 
                                                                  P_diag_post_ut, 
                                                                  sigma_multiplier = 2) #get a boolean vector
@@ -734,15 +721,15 @@ while Ni < N_sim:
             j_valappil_ut[:, Ni] = value_filter_not_run
        
         if "mc" in filters_to_run:
-            j_valappil_mc[:, Ni] = utils_gr.compute_performance_index_valappil(x_post_mc, 
+            j_valappil_mc[:, Ni] = utils_br.compute_performance_index_valappil(x_post_mc, 
                                                                              x_ol, 
                                                                              x_true, cost_func = cost_func_type)
-            within_band_1s_mc = utils_gr.truth_within_estimate(x_true, 
+            within_band_1s_mc = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_mc, 
                                                                  P_diag_post_mc, 
                                                                  sigma_multiplier = 1) #get a boolean vector
             consistency_1s_mc[:, Ni] = np.sum(within_band_1s_mc, axis = 1)/dim_t #% time within band
-            within_band_2s_mc = utils_gr.truth_within_estimate(x_true, 
+            within_band_2s_mc = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_mc, 
                                                                  P_diag_post_mc, 
                                                                  sigma_multiplier = 2) #get a boolean vector
@@ -752,15 +739,15 @@ while Ni < N_sim:
             j_valappil_mc[:, Ni] = value_filter_not_run
        
         if "lin" in filters_to_run:
-            j_valappil_lin[:, Ni] = utils_gr.compute_performance_index_valappil(x_post_lin, 
+            j_valappil_lin[:, Ni] = utils_br.compute_performance_index_valappil(x_post_lin, 
                                                                              x_ol, 
                                                                              x_true, cost_func = cost_func_type)
-            within_band_1s_lin = utils_gr.truth_within_estimate(x_true, 
+            within_band_1s_lin = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_lin, 
                                                                  P_diag_post_lin, 
                                                                  sigma_multiplier = 1) #get a boolean vector
             consistency_1s_lin[:, Ni] = np.sum(within_band_1s_lin, axis = 1)/dim_t #% time within band
-            within_band_2s_lin = utils_gr.truth_within_estimate(x_true, 
+            within_band_2s_lin = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_lin, 
                                                                  P_diag_post_lin, 
                                                                  sigma_multiplier = 2) #get a boolean vector
@@ -769,15 +756,15 @@ while Ni < N_sim:
         else:
             j_valappil_lin[:, Ni] = value_filter_not_run
         if "lin_n" in filters_to_run:
-            j_valappil_lin_n[:, Ni] = utils_gr.compute_performance_index_valappil(x_post_lin_n, 
+            j_valappil_lin_n[:, Ni] = utils_br.compute_performance_index_valappil(x_post_lin_n, 
                                                                              x_ol, 
                                                                              x_true, cost_func = cost_func_type)
-            within_band_1s_lin_n = utils_gr.truth_within_estimate(x_true, 
+            within_band_1s_lin_n = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_lin_n, 
                                                                  P_diag_post_lin_n, 
                                                                  sigma_multiplier = 1) #get a boolean vector
             consistency_1s_lin_n[:, Ni] = np.sum(within_band_1s_lin_n, axis = 1)/dim_t #% time within band
-            within_band_2s_lin_n = utils_gr.truth_within_estimate(x_true, 
+            within_band_2s_lin_n = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_lin_n, 
                                                                  P_diag_post_lin_n, 
                                                                  sigma_multiplier = 2) #get a boolean vector
@@ -787,15 +774,15 @@ while Ni < N_sim:
             j_valappil_lin_n[:, Ni] = value_filter_not_run
         
         if "lhs" in filters_to_run:
-            j_valappil_lhs[:, Ni] = utils_gr.compute_performance_index_valappil(x_post_lhs, 
+            j_valappil_lhs[:, Ni] = utils_br.compute_performance_index_valappil(x_post_lhs, 
                                                                               x_ol, 
                                                                               x_true, cost_func = cost_func_type)
-            within_band_1s_lhs = utils_gr.truth_within_estimate(x_true, 
+            within_band_1s_lhs = utils_br.truth_within_estimate(x_true, 
                                                                   x_post_lhs, 
                                                                   P_diag_post_lhs, 
                                                                   sigma_multiplier = 1) #get a boolean vector
             consistency_1s_lhs[:, Ni] = np.sum(within_band_1s_lhs, axis = 1)/dim_t #% time within band
-            within_band_2s_lhs = utils_gr.truth_within_estimate(x_true, 
+            within_band_2s_lhs = utils_br.truth_within_estimate(x_true, 
                                                                   x_post_lhs, 
                                                                   P_diag_post_lhs, 
                                                                   sigma_multiplier = 2) #get a boolean vector
@@ -805,15 +792,15 @@ while Ni < N_sim:
             j_valappil_lhs[:, Ni] = value_filter_not_run
         
         if "qf" in filters_to_run:
-            j_valappil_qf[:, Ni] = utils_gr.compute_performance_index_valappil(x_post_qf, 
+            j_valappil_qf[:, Ni] = utils_br.compute_performance_index_valappil(x_post_qf, 
                                                                             x_ol, 
                                                                             x_true, cost_func = cost_func_type)
-            within_band_1s_qf = utils_gr.truth_within_estimate(x_true, 
+            within_band_1s_qf = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_qf, 
                                                                  P_diag_post_qf, 
                                                                  sigma_multiplier = 1) #get a boolean vector
             consistency_1s_qf[:, Ni] = np.sum(within_band_1s_qf, axis = 1)/dim_t #% time within band
-            within_band_2s_qf = utils_gr.truth_within_estimate(x_true, 
+            within_band_2s_qf = utils_br.truth_within_estimate(x_true, 
                                                                  x_post_qf, 
                                                                  P_diag_post_qf, 
                                                                  sigma_multiplier = 2) #get a boolean vector
@@ -856,10 +843,10 @@ while Ni < N_sim:
         continue
     except BaseException as e: #this is literally taking all possible exceptions
         print(e)
-        print(f"Iter: {i}: Time spent, t_iter = {time.time()-ti: .2f} s ")
         num_exceptions += 1
         rand_seed += 1
-        # raise e
+        raise e
+        print(f"Iter: {i}: Time spent, t_iter = {time.time()-ti: .2f} s ")
         continue
                 
 
@@ -1231,7 +1218,7 @@ if plot_it:
     plt.tight_layout()
     
     #%% Plot w-realization of last timestep
-    # w_stoch=utils_gr.get_w_realizations_from_mc(par_mc_fx, 
+    # w_stoch=utils_br.get_w_realizations_from_mc(par_mc_fx, 
     #                                                 F,
     #                                                 x_post_mcm[:, i-2], 
     #                                                 t_span, 
@@ -1274,7 +1261,7 @@ if plot_it:
     #        f"min_func(mode): {min_func(mode_w_scaled)}"
     #       )
     
-    # w_mode_mcm, Q_mcm, opt_success, fig_m, ax_m = utils_gr.get_wmode_Q_from_mc(par_mc_fx.copy(), #get_wmeanXXX or get_wmodeXXX
+    # w_mode_mcm, Q_mcm, opt_success, fig_m, ax_m = utils_br.get_wmode_Q_from_mc(par_mc_fx.copy(), #get_wmeanXXX or get_wmodeXXX
     #                                                 F,
     #                                                 x_post_mcm[:, i-1], 
     #                                                 t_span, 

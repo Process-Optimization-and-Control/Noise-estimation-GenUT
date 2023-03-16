@@ -54,7 +54,7 @@ matplotlib.rc('font', **font)
 
 
 #%% Set N simulation times
-N_sim = 100 #this is how many times to repeat each iteration
+N_sim = 1 #this is how many times to repeat each iteration
 # points_x = "scaled"
 points_x = "genut"
 x_var = ["A", "B", "C"]
@@ -64,11 +64,11 @@ cost_func_type = "RMSE" #other valid option is "valappil"
 
 filters_to_run = [
                 "gut",  
-                "gutnw",  
-                    "lin", 
-                    "lin_n", #numerical derivative 
-                    "mc", 
-                    "mcnw", 
+                # "gutnw",  
+                #     "lin", 
+                #     "lin_n", #numerical derivative 
+                #     "mc", 
+                #     "mcnw", 
                    "qf"
                   ]
 
