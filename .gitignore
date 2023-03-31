@@ -1,5 +1,7 @@
 data/
 data_gasreactor/
+data_gasreactor_sample_par_every_dt/
+data_gasreactor_fixed_parametric_mismatch/
 plots/
 
 # Byte-compiled / optimized / DLL files

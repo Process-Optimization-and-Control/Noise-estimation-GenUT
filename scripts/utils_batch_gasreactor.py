@@ -85,7 +85,7 @@ def hx(x):
     return np.atleast_1d(y)
 
 
-def get_literature_values(dt):
+def get_literature_values_sym_dist(dt):
     """
     Initial values, parameters etc. Made here for making main script cleaner.
 
@@ -122,7 +122,7 @@ def get_literature_values(dt):
     corr_par = std_dev_inv @ par_cov_fx @ std_dev_inv
     
     #rescale the standard devaiation, so that we don't sample negative values for k2
-    std_dev_par[1] *= .8
+    std_dev_par[1] *= .5
     std_dev_par = np.diag(std_dev_par)
     par_cov_fx = std_dev_par @ corr_par @ std_dev_par
     
@@ -136,7 +136,100 @@ def get_literature_values(dt):
     
     #Initial state and uncertainty
     x0 = np.array([.5, .05, .0])
-    std_dev0 = np.diag([1e-3, 1e-3, 1e-3])
+    std_dev0 = np.diag([1e-1, 1e-1, 1e-3])
+    corr_0 = np.eye(x0.shape[0])
+    P0 = std_dev0 @ corr_0 @ std_dev0
+    P0 = .5*(P0 + P0.T)
+    
+    #Process and measurement noise
+    Q = np.diag(np.square([1e-3, 1e-3, 1e-3]))
+    R = np.diag([.25**2])
+    
+    return x0, P0, par_mean_fx, par_cov_fx, cm3_par, cm4_par, dist_multivar, dist_univar, Q, R
+
+def get_literature_values_points_dist(dt, N_samples = int(1e4)):
+    """
+    Initial values, parameters etc. Made here for making main script cleaner.
+
+    Returns
+    -------
+    x0 : TYPE np.array(dim_x,)
+        DESCRIPTION. Starting point for UKF (mean value of initial guess)
+    P0 : TYPE np.array((dim_x, dim_x))
+        DESCRIPTION. Initial covariance matrix. Gives uncertainty of starting point. The starting point for the true system is drawn as x_true ~ N(x0,P0)
+    par_mean_fx : TYPE dict
+        DESCRIPTION. Parameters for the process model.
+    par_cov_fx : TYPE dixt
+        DESCRIPTION. Parameters covariance
+    Q : TYPE np.array((dim_w, dim_w))
+        DESCRIPTION. Process noise covariance matrix
+    R : TYPE np.array((dim_v, dim_v))
+        DESCRIPTION. Measurement noise covariance matrix
+
+    """
+    
+    #Nominal parameter values 
+    par_mean_fx = dict(k1 = .5, k2 = .05, k3 = .2, k4 = .01)
+    par_cov_fx = np.array(
+        [[3.7e-6, 9.5e-6, -5.83e-6, 2.36e-8],
+         [9.5e-6, 3.37e-4, -2.55e-4, -2.68e-6],
+         [-5.83e-6, -2.55e-4, 1.97e-4, 2.31e-6],
+         [2.36e-8, -2.68e-6, 2.31e-6, 4.79e-8]
+         ])
+    assert (par_cov_fx == par_cov_fx.T).all(), f"par_cov_fx is not symmetric, {(par_cov_fx == par_cov_fx.T)}"
+    dim_par = par_cov_fx.shape[0]
+    
+    std_dev_par = np.sqrt(np.diag(par_cov_fx))
+    std_dev_inv = np.diag([1/si for si in std_dev_par])
+    corr_par = std_dev_inv @ par_cov_fx @ std_dev_inv
+    
+    #rescale the standard devaiation, so that we don't sample negative values for k2
+    # std_dev_par[0] *=200
+    std_dev_par[1] *= 2.5
+    std_dev_par[-1] *= 1.2
+    
+    # std_dev_par *= 1.5
+    std_dev_par = np.diag(std_dev_par)
+    # corr_par = np.eye(len(par_mean_fx))
+    par_cov_fx = std_dev_par @ corr_par @ std_dev_par
+    
+    dist_multivar = scipy.stats.multivariate_normal(list(par_mean_fx.values()), par_cov_fx)
+    
+    #Sample values from dist_multivar and accept the samples if all values are above the constraint
+    N_samples = int(1e4)
+    par_samples = get_points(dist_multivar, None, N = N_samples, constraint = 1e-8)
+    
+    #evaluate mean, cov, cm3, cm4
+    par_mean_fx_val = np.mean(par_samples, axis = 0)
+    par_keys = par_mean_fx.keys()
+    par_mean_fx = {key: val for key, val in zip(par_keys, par_mean_fx_val)}
+    par_cov_fx = np.cov(par_samples, rowvar = False)
+    cm3_par = scipy.stats.moment(par_samples, moment = 3, axis = 0)
+    cm4_par = scipy.stats.moment(par_samples, moment = 4, axis = 0)
+    
+    if False:
+        #check that Pearsons inequality is fulfilled (equation 35 in the GenUT paper)
+        P_sqrt = scipy.linalg.cholesky(par_cov_fx, lower = True)
+        P_sqrt_pow3_inv = scipy.linalg.inv(np.power(P_sqrt, 3))
+        
+        
+        S_std = P_sqrt_pow3_inv @ cm3_par
+        #check that inequality constraint for K is fulfilled (ensures u>0)
+        K_lb = np.power(P_sqrt, 4) @ np.square(S_std)
+        if not (cm4_par > K_lb).all():
+            print(f"I utils. Har cm4_par_old = {cm4_par} og K_lb = {K_lb}")
+            cm4_par = np.array([Ki if Ki > Ki_lb else Ki_lb + 1e-15 for Ki, Ki_lb in zip(cm4_par, K_lb)])
+        assert (cm4_par > K_lb).all(), f"Pearsons inequality not fulfilled. K should be larger than K_lb. Have K = {cm4_par} and K_lb = {K_lb}"
+    
+    # cm3_par = np.zeros(dim_par)
+    # cm4_par = spc.GenUTSigmaPoints.compute_cm4_isserlis_for_multivariate_normal(par_cov_fx)
+    
+    dist_univar = {}
+                                                    
+    
+    #Initial state and uncertainty
+    x0 = np.array([.5, .05, .0])
+    std_dev0 = np.diag([1e-1, 1e-1, 1e-3])
     corr_0 = np.eye(x0.shape[0])
     P0 = std_dev0 @ corr_0 @ std_dev0
     P0 = .5*(P0 + P0.T)
@@ -255,7 +348,8 @@ def get_wmean_Q_from_mc(par_mc, F, x, par_nom):
 
 def compute_performance_index_valappil(x_kf, x_ol, x_true, cost_func = "RMSE"):
     if cost_func == "RMSE":
-        J = np.linalg.norm(x_kf - x_true, axis = 1, ord = 2)
+        # J = np.linalg.norm(x_kf - x_true, axis = 1, ord = 2)
+        J = np.sqrt(np.square(x_kf - x_true).mean(axis = 1))
     elif cost_func == "valappil": #valappil's cost index
         J = np.divide(np.linalg.norm(x_kf - x_true, axis = 1, ord = 2),
                       np.linalg.norm(x_ol - x_true, axis = 1, ord = 2))
@@ -274,14 +368,36 @@ def get_positive_point(dist, eps = 1e-4, N = 1):
         DESCRIPTION. Points with all positive values
 
     """
-    all_positive = False
-    i = 0
-    while not all_positive:
-        point = dist.rvs(size = N)
-        all_positive = (point >= eps).all()
-        i += 1
-        if i > 100:
-            raise ValueError(f"Have tried {i} random draws, and not all points were above {eps}. Distribution is wrong or {eps} is too high.")
-    return point
+    dim_x = dist.rvs(size = 1).shape[0]
+    points = np.zeros((N, dim_x))
     
+    sampled_points = dist.rvs(size = 10*N)
+    k = 0
+    for i in range(sampled_points.shape[0]):
+        if (sampled_points[i,:] > eps).all(): #accept the point
+            points[k, :] = sampled_points[i,:]
+            k += 1
+            if k >= N:
+                break
+    assert k >= N, "Did not find enough points above the constraint"
+    assert (points > eps).all(), "Not all points are above the constraint"
+    
+    if N == 1:
+        points = points.flatten()
+    # all_positive = False
+    # i = 0
+    # while not all_positive:
+    #     point = dist.rvs(size = N)
+    #     all_positive = (point >= eps).all()
+    #     i += 1
+    #     if i > 100:
+    #         raise ValueError(f"Have tried {i} random draws, and not all points were above {eps}. Distribution is wrong or {eps} is too high.")
+    return points
+    
+
+def get_corr_std_dev(P):
+    std_dev = np.sqrt(np.diag(P))
+    std_dev_inv = np.diag([1/si for si in std_dev])
+    corr = std_dev_inv @ P @ std_dev_inv
+    return std_dev, corr
     

@@ -274,6 +274,8 @@ class UKF_additive_noise(UKFBase):
                      w_mean = w_mean, v_mean = v_mean, name = name, check_negative_sigmas = check_negative_sigmas)
         
         dim_x = x0.shape[0]
+        assert x0.ndim == 1, f"x0 should be 1d array, it is {x0.ndim}"
+        assert P0.ndim == 2, f"P0 should be 2d array, it is {P0.ndim}"
         assert (dim_x, dim_x) == P0.shape #check input
         assert (P0 == P0.T).all() #symmtrical
         
@@ -467,6 +469,9 @@ class NUKF_additive_noise_corr_lim(UKFBase):
         
         super().__init__(fx, hx, points_x, Q, R, 
                      w_mean = w_mean, v_mean = v_mean, name = name, check_negative_sigmas = check_negative_sigmas)
+        
+        assert x0.ndim == 1, f"x0 should be 1d array, it is {x0.ndim}"
+        assert P0.ndim == 2, f"P0 should be 2d array, it is {P0.ndim}"
         
         dim_x = x0.shape[0]
         assert (dim_x, dim_x) == P0.shape #check input
@@ -857,6 +862,9 @@ class UKF_nonlinear_noise(UKFBase):
         super().__init__(fx, hx, points_xw, Q, R, 
                      w_mean = None, v_mean = None, name=None)
         
+        assert x0.ndim == 1, f"x0 should be 1d array, it is {x0.ndim}"
+        assert P0.ndim == 2, f"P0 should be 2d array, it is {P0.ndim}"
+        
         #override behaviour for points_fn_x in super().__init__()
         del self.points_fn_x
         del self._num_sigmas_x
@@ -1057,6 +1065,9 @@ class NUKF_nonlinear_noise_corr_lim(UKFBase):
                      corr_y_lim = np.inf, corr_xy_lim = np.inf, name=None):
         super().__init__(fx, hx, points_xw, Q, R, 
                      w_mean = w_mean, v_mean = v_mean, name = name)
+        
+        assert x0.ndim == 1, f"x0 should be 1d array, it is {x0.ndim}"
+        assert P0.ndim == 2, f"P0 should be 2d array, it is {P0.ndim}"
         
         dim_x = x0.shape[0]
         assert (dim_x, dim_x) == P0.shape #check input

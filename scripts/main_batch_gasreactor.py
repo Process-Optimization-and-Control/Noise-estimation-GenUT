@@ -56,6 +56,7 @@ matplotlib.rc('font', **font)
 #%% Set N simulation times
 N_sim = 1 #this is how many times to repeat each iteration
 # points_x = "scaled"
+sample_par_each_timestep = True #False: sample random parameter and keep it constant throughout the simulation. True: sample parameter at every time step
 points_x = "genut"
 x_var = ["A", "B", "C"]
 dim_x = len(x_var)
@@ -65,11 +66,11 @@ cost_func_type = "RMSE" #other valid option is "valappil"
 filters_to_run = [
                 "gut",  
                 # "gutnw",  
-                #     "lin", 
-                #     "lin_n", #numerical derivative 
-                #     "mc", 
-                #     "mcnw", 
-                   "qf"
+                    "lin", 
+                    # "lin_n", #numerical derivative 
+                    # "mc", 
+                    # "mcnw", 
+                    "qf"
                   ]
 
 j_valappil_gut = np.zeros((dim_x, N_sim))
@@ -116,10 +117,12 @@ while Ni < N_sim:
         
         #%% Matrix square-root
         sqrt_method = lambda P: scipy.linalg.cholesky(P, lower = True)
+        # sqrt_method = scipy.linalg.sqrtm
         
         #%% Import parameters
         dt_y = .25 # [-] Measurement frequency
-        x0, P0, par_mean_fx, par_cov_fx, cm3_par, cm4_par, par_dist_multivar, par_dist_univar, Q_nom, R_nom = utils_gr.get_literature_values(dt_y)
+        x0, P0, par_mean_fx, par_cov_fx, cm3_par, cm4_par, par_dist_multivar, par_dist_univar, Q_nom, R_nom = utils_gr.get_literature_values_points_dist(dt_y, N_samples = int(1e6))
+        # x0, P0, par_mean_fx, par_cov_fx, cm3_par, cm4_par, par_dist_multivar, par_dist_univar, Q_nom, R_nom = utils_gr.get_literature_values(dt_y)
         
         dim_par_fx = par_cov_fx.shape[0]
         
@@ -140,7 +143,10 @@ while Ni < N_sim:
         
         #UKF initial states
         x0_dist = scipy.stats.multivariate_normal(mean = x0, cov = P0)
-        x0_kf = utils_gr.get_positive_point(x0_dist, eps=1e-6) # random value from x0_kf from the multivariate normal dist with (mean=x0_true, cov = P0) and x0_kf >= eps
+        try:
+            x0_kf = utils_gr.get_positive_point(x0_dist, eps=1e-10) # random value from x0_kf from the multivariate normal dist with (mean=x0_true, cov = P0) and x0_kf >= eps
+        except AssertionError:
+            x0_kf = x0.copy() + 1e-10
 
         
         #Arrays where values are stored
@@ -203,7 +209,7 @@ while Ni < N_sim:
         # alpha = 1
         # beta = 0
         # kappa = 3-dim_x
-        positive_sigmas_x = True
+        lbx = .0
         k_positive = 1 - 1e-8
         if points_x == "scaled":
             alpha = 1e-2
@@ -214,7 +220,8 @@ while Ni < N_sim:
                                                     beta,
                                                     kappa, sqrt_method = sqrt_method)
         elif points_x == "genut":
-            points_gut = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
+            points_gut = spc.GenUTSigmaPoints_v2(dim_x, sqrt_method = sqrt_method, theta = k_positive, lbx = lbx)
+            # points_gut = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
         
         fx_ukf_gut = None #updated later in the simulation
         kfc_gut = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_gut, Q_nom, R_nom, name="gut") 
@@ -243,7 +250,8 @@ while Ni < N_sim:
                                                     beta_mc,
                                                     kappa_mc, sqrt_method = sqrt_method)
         elif points_x == "genut":
-            points_mc = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
+            points_mc = spc.GenUTSigmaPoints_v2(dim_x, sqrt_method = sqrt_method, theta = k_positive, lbx = lbx)
+            # points_mc = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
         kfc_mc = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_mc, Q_nom, R_nom, name="mc")
         #%% Define UKF with adaptive Q, R from MC WITH mean adjustment of w
         if points_x == "scaled":
@@ -255,7 +263,8 @@ while Ni < N_sim:
                                                     beta_gutnw,
                                                     kappa_gutnw, sqrt_method = sqrt_method)
         elif points_x == "genut":
-            points_gutnw = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
+            points_gutnw = spc.GenUTSigmaPoints_v2(dim_x, sqrt_method = sqrt_method, theta = k_positive, lbx = lbx)
+            # points_gutnw = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
         kfc_gutnw = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_gutnw, Q_nom, R_nom, name="gutnw")
         #%% Define UKF with adaptive Q, R from MC WITHout mean adjustment of w
         if points_x == "scaled":
@@ -267,7 +276,8 @@ while Ni < N_sim:
                                                     beta_mcnw,
                                                     kappa_mcnw, sqrt_method = sqrt_method)
         elif points_x == "genut":
-            points_mcnw = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
+            points_mcnw = spc.GenUTSigmaPoints_v2(dim_x, sqrt_method = sqrt_method, theta = k_positive, lbx = lbx)
+            # points_mcnw = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
         kfc_mcnw = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_mcnw, Q_nom, R_nom, name="mcnw")
         
         #%% Define UKF with adaptive Q, R from linearized approach
@@ -280,7 +290,8 @@ while Ni < N_sim:
                                                     beta_lin,
                                                     kappa_lin, sqrt_method = sqrt_method)
         elif points_x == "genut":
-            points_lin = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
+            points_lin = spc.GenUTSigmaPoints_v2(dim_x, sqrt_method = sqrt_method, theta = k_positive, lbx = lbx)
+            # points_lin = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
         
         kfc_lin = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_lin, Q_nom, R_nom, name="lin")
        
@@ -294,7 +305,8 @@ while Ni < N_sim:
                                                     beta_lin_n,
                                                     kappa_lin_n, sqrt_method = sqrt_method)
         elif points_x == "genut":
-            points_lin_n = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
+            points_lin_n = spc.GenUTSigmaPoints_v2(dim_x, sqrt_method = sqrt_method, theta = k_positive, lbx = lbx)
+            # points_lin_n = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
         
         kfc_lin_n = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_lin_n, Q_nom, R_nom, name="lin_n")
        
@@ -308,13 +320,16 @@ while Ni < N_sim:
                                                     beta_qf,
                                                     kappa_qf, sqrt_method = sqrt_method)
         elif points_x == "genut":
-            points_qf = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
+            points_qf = spc.GenUTSigmaPoints_v2(dim_x, sqrt_method = sqrt_method, theta = k_positive, lbx = lbx)
+            # points_qf = spc.GenUTSigmaPoints(dim_x, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_x, k_positive = k_positive)
         kfc_qf = UKF.UKF_additive_noise(x0_kf.copy(), P0.copy(), None, utils_gr.hx, points_qf, Q_nom, R_nom, name="qf")
         
         #%% Get parametric uncertainty of fx by GenUT. Generate sigmapoints first ("offline")
         positive_sigmas_par = True
         k_positive_par = k_positive
-        points_par = spc.GenUTSigmaPoints(dim_par_fx, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_par, k_positive = k_positive_par)
+        # sqrt_method = scipy.linalg.sqrtm
+        points_par = spc.GenUTSigmaPoints_v2(dim_par_fx, sqrt_method = sqrt_method, theta = k_positive_par, lbx = lbx)
+        # points_par = spc.GenUTSigmaPoints(dim_par_fx, sqrt_method = sqrt_method, positive_sigmas = positive_sigmas_par, k_positive = k_positive_par)
         
         sigmas_fx_gut, w_fx_gut, _, _ = points_par.compute_sigma_points(np.array(list(par_mean_fx.values())), par_cov_fx, S = cm3_par, K = cm4_par)
         
@@ -328,13 +343,12 @@ while Ni < N_sim:
         N_mc_dist = int(1e3)
 
         
-        #par_mc_fx is a np.array((dim_par, N_mc_dist)) with random amples from par_samples_fx
+        #par_mc_fx is a np.array((dim_par, N_mc_dist)) with random samples from par_samples_fx
         par_mc_fx = utils_gr.get_points(
             par_dist_multivar, par_dist_univar,
             N = N_mc_dist,
             constraint = 1e-10
             )
-        
         if False:
             df_par_mc = pd.DataFrame(data = par_mc_fx, columns = ["k" + str(i+1) for i in range(dim_par_fx)])
             sns.pairplot(df_par_mc)
@@ -342,7 +356,9 @@ while Ni < N_sim:
             std_dev_par = np.sqrt(np.diag(par_cov_fx))
             std_dev_inv = np.diag([1/si for si in std_dev_par])
             corr_par = std_dev_inv @ par_cov_fx @ std_dev_inv
+            raise ValueError
         par_mc_fx = par_mc_fx.T
+        
         #%% Q_fixed, robustness
         Q_diag_min = np.eye(dim_x)*1e-10
         
@@ -356,13 +372,16 @@ while Ni < N_sim:
         
         #%% Simulate the plant and UKF
         
+        par_true_val = utils_gr.get_points(par_dist_multivar, par_dist_univar, N = 1, constraint = 1e-10) #same through entire simulation
+        par_true_fx = {key: val for key, val in zip(par_mean_fx.keys(), par_true_val)}
         for i in range(1, dim_t):
             t_span = (t[i-1], t[i])
             
-            #sample parameter values for the plant
-            par_true_val = utils_gr.get_points(par_dist_multivar, par_dist_univar, N = 1, constraint = 1e-10)
-            assert (par_true_val > 0).all()
-            par_true_fx = {key: val for key, val in zip(par_mean_fx.keys(), par_true_val)}
+            if sample_par_each_timestep:            
+                #sample parameter values for the plant
+                par_true_val = utils_gr.get_points(par_dist_multivar, par_dist_univar, N = 1, constraint = 1e-10)
+                assert (par_true_val > 0).all()
+                par_true_fx = {key: val for key, val in zip(par_mean_fx.keys(), par_true_val)}
             
             #Simulate the true plant
             x_true[:, i] = utils_gr.integrate_ode(F, 
@@ -496,7 +515,7 @@ while Ni < N_sim:
                
            tf_lin_n = timeit.default_timer()
            time_sim_lin_n[Ni] = tf_lin_n - ts_lin_n
-
+         
         if "mc" in filters_to_run:
             #Adaptive Q by MC random and w_mean
             ts_mc = timeit.default_timer()
@@ -518,6 +537,8 @@ while Ni < N_sim:
         
                 x_post_mc[:, i] = kfc_mc.x_post
                 P_diag_post_mc[:, i] = np.diag(kfc_mc.P_post)
+                if i%10 == 0:
+                    print(f"Iter {i}/{dim_t} in MC tuning")
                 
             tf_mc = timeit.default_timer()
             time_sim_mc[Ni] = tf_mc - ts_mc
@@ -663,7 +684,7 @@ while Ni < N_sim:
         print(e)
         num_exceptions += 1
         rand_seed += 1
-        raise e
+        # raise e
         print(f"Iter: {i}: Time spent, t_iter = {time.time()-ti: .2f} s ")
         continue
                 
@@ -701,7 +722,7 @@ if plot_it:
     meas_idx = np.array([])
     idx_y = 0
     filters_to_plot = [
-        # "gut" 
+        "gut",
         # "ut", 
         "mc",
         "lin",
@@ -1101,23 +1122,24 @@ ax_rt.legend(handles_leg[-2:], labels_leg[-2:])
 ax_rt.set_yscale('log')
 
 
-#print
-filters_to_print = ["gut", "lin", "lin_n", "mc", "Fixed"]
-for name in filters_to_print:
-    print(df_t[df_t["Filter"] == name].mean())
-
-
 #%% Save variables
 dir_project = pathlib.Path(__file__).parent.parent 
 dir_data = os.path.join(dir_project, "data_gasreactor")
 if not os.path.exists(dir_data):
     os.mkdir(dir_data)
 
-if False:
+if True:
     df_t.to_csv(os.path.join(dir_data, "sim_time.csv"))
     if "df_cost_rmse_all" in locals(): #check if variable exists
         df_cost_rmse_all.to_csv(os.path.join(dir_data, "df_cost_rmse_all.csv"))
         df_cost_mean_all.to_csv(os.path.join(dir_data, "df_cost_mean_all.csv"))
+
+#%% rmse_mean in table
+rmse_mean_table = df_cost_rmse_all.mean().unstack(level = 1)
+rmse_std_table = df_cost_rmse_all.std().unstack(level = 1)
+print(rmse_mean_table.drop(index = ["gutnw", "mcnw", "lin_n"])*100)
+print(rmse_std_table.drop(index = ["gutnw", "mcnw", "lin_n"])*100)
+print(rmse_std_table)
 
 #example of reading back to a pandas file
 # df_t2 = pd.read_csv(os.path.join(dir_data, "sim_time.csv"))
