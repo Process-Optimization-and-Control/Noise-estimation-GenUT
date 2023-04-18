@@ -68,9 +68,9 @@ filters_to_run = [
                 # "gutnw",  
                     "lin", 
                     # "lin_n", #numerical derivative 
-                    # "mc", 
+                    "mc", 
                     # "mcnw", 
-                    "qf"
+                    # "qf"
                   ]
 
 j_valappil_gut = np.zeros((dim_x, N_sim))
@@ -349,9 +349,9 @@ while Ni < N_sim:
             N = N_mc_dist,
             constraint = 1e-10
             )
-        if False:
-            df_par_mc = pd.DataFrame(data = par_mc_fx, columns = ["k" + str(i+1) for i in range(dim_par_fx)])
-            sns.pairplot(df_par_mc)
+        if True:
+            df_par_mc = pd.DataFrame(data = par_mc_fx, columns = [r"$k_" + str(i+1) + "$" for i in range(dim_par_fx)])
+            sns.pairplot(df_par_mc, corner = True)
             
             std_dev_par = np.sqrt(np.diag(par_cov_fx))
             std_dev_inv = np.diag([1/si for si in std_dev_par])
@@ -537,8 +537,8 @@ while Ni < N_sim:
         
                 x_post_mc[:, i] = kfc_mc.x_post
                 P_diag_post_mc[:, i] = np.diag(kfc_mc.P_post)
-                if i%10 == 0:
-                    print(f"Iter {i}/{dim_t} in MC tuning")
+                # if i%10 == 0:
+                #     print(f"Iter {i}/{dim_t} in MC tuning")
                 
             tf_mc = timeit.default_timer()
             time_sim_mc[Ni] = tf_mc - ts_mc
@@ -858,42 +858,69 @@ if plot_it:
     # ax1[3].set_ylim((-2,30))
     ax1[0].legend(ncol = 2, frameon = False)   
     # ax1[0].legend(ncol = 2, frameon = True)   
+    
+    
+    #%% Plot trajectories in same plot
+    fig_x, ax_x = plt.subplots(1,1, layout = "constrained")
+    kwargs_x_true = {"linestyle": "dashed"}
+    label_true = [r"$c_A$", r"$c_B$", r"$c_C$"]
+    label_post = [r"$\hat{c}_A^+$", r"$\hat{c}_B^+$", r"$\hat{c}_C^+$"]
+    kwargs_post = {"color": None, "alpha": .2}
+    
+    for i in range(dim_x):
+        l_x = ax_x.plot(t, x_true[i, :], **kwargs_x_true, label = label_true[i])
+        
+        ax_x.plot(t, x_post_gut[i,:], l_x[0].get_color(), label = label_post[i])
+        
+        kwargs_post.update({"color": l_x[0].get_color()})
+        ax_x.fill_between(t, 
+                            x_post_gut[i, :] + 2*np.sqrt(P_diag_post_gut[i,:]),
+                            x_post_gut[i, :] - 2*np.sqrt(P_diag_post_gut[i,:]),
+                            **kwargs_post)
+        ax_x.fill_between(t, 
+                            x_post_gut[i, :] + 1*np.sqrt(P_diag_post_gut[i,:]),
+                            x_post_gut[i, :] - 1*np.sqrt(P_diag_post_gut[i,:]),
+                            **kwargs_post)
+    
+    ax_x.legend()
+    ax_x.set_ylabel("Concentration")
+    ax_x.set_xlabel("Time")
+    
      
 
     #%% Plot w_mean-history
-    w_labels = [r"$w_{GUT}$", r"$w_{MC}$"]#, r"$F_{in}$ [*]"]
-    y_labels = [ r"$c_A$ [-]", r"$c_B [-]$", r"$c_C [-]$"]#
-    fig_w, ax_w = plt.subplots(dim_x, 1 ,sharex = True)
+    w_labels = [r"$\hat{w}_{GenUT}$", r"$\hat{w}_{MC}$"]#, r"$F_{in}$ [*]"]
+    y_labels = [ r"$c_A$", r"$c_B$", r"$c_C$"]#
+    fig_w, ax_w = plt.subplots(dim_x, 1 ,sharex = True, layout = "constrained")
     if dim_x == 1:
         ax_w = [ax_w]
     for i in range(dim_x):
         ax_w[i].plot(t, w_gut_hist[i, :], label = w_labels[0])
         ax_w[i].plot(t, w_mc_hist[i, :], label = w_labels[1])
         ax_w[i].set_ylabel(y_labels[i])
-    ax_w[-1].set_xlabel("Time [h]")
+    ax_w[-1].set_xlabel("Time")
     ax_w[0].legend()
     
     #%% Plot Q-history
-    q_labels = [r"$Q_{GUT}$", r"$Q_{MC}$", r"$Q_{Lin}$", r"$Q_{Lin-n}$", r"$Q_{GUTnw}$", r"$Q_{MCnw}$"]
+    q_labels = [r"$Q_{GenUT}$", r"$Q_{MC}$", r"$Q_{Lin}$"]#, r"$Q_{Lin-n}$", r"$Q_{GUTnw}$", r"$Q_{MCnw}$"]
     # y_labels = [ r"$V^2$ [L^2]", r"$X^2 [(g/L)^2]$", r"$S^2 [(g/L)^2]$", r"$(CO_2)^2 [*]$"]#
-    y_labels = [ r"$c_A [-]$", r"$c_B [-]$", r"$c_C [-]$"]#
-    kwargs_qplot = {"linestyle": "dashed"}
+    y_labels = [ r"$c_A$", r"$c_B$", r"$c_C$"]#
+    kwargs_qplot = {}#{"linestyle": "dashed"}
     matplotlib.rc('font', **font)
-    fig_q, ax_q = plt.subplots(dim_x, 1 ,sharex = True)
+    fig_q, ax_q = plt.subplots(dim_x, 1 ,sharex = True, layout = "constrained")
     if dim_x == 1:
         ax_q = [ax_q]
     for i in range(dim_x):
-        ax_q[i].plot(t, Q_lin_hist[i, :], label = q_labels[2], **kwargs_qplot)
         ax_q[i].plot(t, Q_gut_hist[i, :], label = q_labels[0], **kwargs_qplot)
         ax_q[i].plot(t, Q_mc_hist[i, :], label = q_labels[1], **kwargs_qplot)
-        ax_q[i].plot(t, Q_lin_n_hist[i, :], label = q_labels[3], **kwargs_qplot)
-        ax_q[i].plot(t, Q_gutnw_hist[i, :], label = q_labels[4], **kwargs_qplot)
-        ax_q[i].plot(t, Q_mcnw_hist[i, :], label = q_labels[5], **kwargs_qplot)
+        ax_q[i].plot(t, Q_lin_hist[i, :], label = q_labels[2], **kwargs_qplot)
+        # ax_q[i].plot(t, Q_lin_n_hist[i, :], label = q_labels[3], **kwargs_qplot)
+        # ax_q[i].plot(t, Q_gutnw_hist[i, :], label = q_labels[4], **kwargs_qplot)
+        # ax_q[i].plot(t, Q_mcnw_hist[i, :], label = q_labels[5], **kwargs_qplot)
         ax_q[i].set_ylabel(y_labels[i])
-        ax_q[i].legend(ncol = 3)
-    ax_q[-1].set_xlabel("Time [-]")
+    ax_q[-1].set_xlabel("Time")
+    ax_q[0].legend(ncol = 3)
     # ax_q[0].legend(ncol = 3)
-    plt.tight_layout()
     
     
 #%% Violin plot of cost function
