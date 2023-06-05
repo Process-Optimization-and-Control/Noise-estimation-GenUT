@@ -1007,11 +1007,11 @@ def get_corr_std_dev(P):
 # x2 = x1.copy()
 # P2 = P1.copy()
 
-x1 = np.arange(1,3)
-P1 = np.array([[2., 0],
-                [0, 3.]])
-x2 = np.array([4])
-P2 = np.array([[4]])
+# x1 = np.arange(1,3)
+# P1 = np.array([[2., 0],
+#                 [0, 3.]])
+# x2 = np.array([4])
+# P2 = np.array([[4]])
 
 # x1 = np.arange(1,4)
 # P1 = np.array([[2., 0, 0],
@@ -1022,65 +1022,66 @@ P2 = np.array([[4]])
 #                 [0, 5., 0],
 #                 [0, 0, 3.]])
 
-xa = np.hstack((x1,x2))
-dim_xa = xa.shape[0]
-dim_x1 = x1.shape[0]
-dim_x2 = x2.shape[0]
-Pa = scipy.linalg.block_diag(P1, P2)
+# xa = np.hstack((x1,x2))
+# dim_xa = xa.shape[0]
+# dim_x1 = x1.shape[0]
+# dim_x2 = x2.shape[0]
+# Pa = scipy.linalg.block_diag(P1, P2)
 
-sqrt_method = lambda P: scipy.linalg.cholesky(P, lower = True)
-# sqrt_method = scipy.linalg.sqrtm
-import unscented_transform as UT
-func = lambda x: x**2 + x[0]*x[-1]#np.power(x,2)*np.sin(x)
-func2 = lambda u, v: func(np.hstack((u, v)))
+# sqrt_method = lambda P: scipy.linalg.cholesky(P, lower = True)
+# # sqrt_method = scipy.linalg.sqrtm
+# import unscented_transform as UT
+# # func = lambda x: x**2 + x[0]*x[-1]#np.power(x,2)*np.sin(x)
+# func = lambda x: x**2 + x*x[-1]
+# func2 = lambda u, v: func(np.hstack((u, v)))
 
-#augmented system
-points = JulierSigmaPoints(dim_xa, sqrt_method = sqrt_method, kappa = 3 - dim_xa)
-# points = ScaledSigmaPoints(dim_xa, sqrt_method = sqrt_method, kappa = 3 - dim_xa)
-sigmas, Wm, Wc, P_sqrt = points.compute_sigma_points(xa, Pa)
-# ym, Py = UT.unscented_transform_w_function_eval(sigmas, Wm, Wc, func)
-ym, Py, Aa = UT.unscented_transform_w_function_eval_wslr(sigmas, Wm, Wc, func)
-Py_sqrt = sqrt_method(Py)
+# #augmented system
+# points = JulierSigmaPoints(dim_xa, sqrt_method = sqrt_method, kappa = 3 - dim_xa)
+# # points = ScaledSigmaPoints(dim_xa, sqrt_method = sqrt_method, kappa = 3 - dim_xa)
+# sigmas, Wm, Wc, P_sqrt = points.compute_sigma_points(xa, Pa)
+# # ym, Py = UT.unscented_transform_w_function_eval(sigmas, Wm, Wc, func)
+# ym, Py, Aa = UT.unscented_transform_w_function_eval_wslr(sigmas, Wm, Wc, func)
+# # Py_sqrt = sqrt_method(Py)
 
-#v
-points_x2 = JulierSigmaPoints(dim_x2, sqrt_method = sqrt_method, kappa = 3 - dim_x2)
-# points_x2 = ScaledSigmaPoints(dim_x2, sqrt_method = sqrt_method, kappa = 3 - dim_x2)
-sigmas_x2, Wm_x2, Wc_x2, P_sqrt = points_x2.compute_sigma_points(x2, P2)
-y0 = func2(x1, x2)
-v_func = lambda z: func2(x1, z) - y0
-vm, Pv, Ax2 = UT.unscented_transform_w_function_eval_wslr(sigmas_x2, Wm_x2, Wc_x2, v_func)
+# #v
+# points_x2 = JulierSigmaPoints(dim_x2, sqrt_method = sqrt_method, kappa = 3 - dim_x2)
+# # points_x2 = ScaledSigmaPoints(dim_x2, sqrt_method = sqrt_method, kappa = 3 - dim_x2)
+# sigmas_x2, Wm_x2, Wc_x2, P_sqrt = points_x2.compute_sigma_points(x2, P2)
+# y0 = func2(x1, x2)
+# v_func = lambda z: func2(x1, z) - y0
+# vm, Pv, Ax2 = UT.unscented_transform_w_function_eval_wslr(sigmas_x2, Wm_x2, Wc_x2, v_func)
 
-#x_nom
-points_x1 = JulierSigmaPoints(dim_x1, sqrt_method = sqrt_method, kappa = 3 - dim_x1)
-sigmas_x1, Wm_x1, Wc_x1, P_sqrt = points_x1.compute_sigma_points(x1, P1)
-ynom_func = lambda q: func2(q, x2)
-y_nom, Py_nom, Ax1 = UT.unscented_transform_w_function_eval_wslr(sigmas_x1, Wm_x1, Wc_x1, ynom_func)
+# #x_nom
+# points_x1 = JulierSigmaPoints(dim_x1, sqrt_method = sqrt_method, kappa = 3 - dim_x1)
+# sigmas_x1, Wm_x1, Wc_x1, P_sqrt = points_x1.compute_sigma_points(x1, P1)
+# ynom_func = lambda q: func2(q, x2)
+# y_nom, Py_nom, Ax1 = UT.unscented_transform_w_function_eval_wslr(sigmas_x1, Wm_x1, Wc_x1, ynom_func)
 
-Aa2 = np.hstack((Ax1, Ax2))
+# Aa2 = np.hstack((Ax1, Ax2))
 
-#Monte Carlo result
-N_mc = int(1e3)
-x_samples = np.random.multivariate_normal(xa, Pa, size = N_mc)
-y_samples = np.array(list(map(func, x_samples)))
-ym_mc = np.mean(y_samples, axis = 0)
-Py_mc = np.cov(y_samples, rowvar = False)
+# #Monte Carlo result
+# N_mc = int(1e5)
+# x_samples = np.random.multivariate_normal(xa, Pa, size = N_mc)
+# y_samples = np.array(list(map(func, x_samples)))
+# ym_mc = np.mean(y_samples, axis = 0)
+# Py_mc = np.cov(y_samples, rowvar = False)
 
-#print results
-ym2 = y_nom + vm
-Py2 = Py_nom + Pv
-error_mean = ym - ym2
-error_cov = Py - Py2
-error_cov_mc = Py_mc - Py2
+# #print results
+# ym2 = y_nom + vm
+# Py2 = Py_nom + Pv
+# error_mean = ym - ym2
+# error_cov = Py - Py2
+# error_cov_mc = Py_mc - Py2
 
-norm_error_cov = np.linalg.norm(error_cov)
-norm_error_cov_mc = np.linalg.norm(error_cov_mc)
-error_var = np.diag(error_cov)
-print(f"Mean error: {error_mean}\n",
-      f"Norm(Cov error): {norm_error_cov}\n",
-      f"Norm(Cov error mc): {norm_error_cov_mc}\n",
-      f"Var error: {error_var}")
+# norm_error_cov = np.linalg.norm(error_cov)
+# norm_error_cov_mc = np.linalg.norm(error_cov_mc)
+# error_var = np.diag(error_cov)
+# print(f"Mean error: {error_mean}\n",
+#       f"Norm(Cov error): {norm_error_cov}\n",
+#       f"Norm(Cov error mc): {norm_error_cov_mc}\n",
+#       f"Var error: {error_var}")
 
-sig_y, corr_y = get_corr_std_dev(Py)
-sig_y_mc, corr_y_mc = get_corr_std_dev(Py_mc)
+# sig_y, corr_y = get_corr_std_dev(Py)
+# sig_y_mc, corr_y_mc = get_corr_std_dev(Py_mc)
 
 
