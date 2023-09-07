@@ -187,10 +187,9 @@ def get_literature_values_points_dist(dt, N_samples = int(1e4)):
     # std_dev_par[0] *=200
     std_dev_par[1] *= 2.5
     std_dev_par[-1] *= 1.2
-    print(f"std_dev: {std_dev_par}")
-    print(f"corr_par: {corr_par}")
-    print(f"mean_par: {par_mean_fx}")
-    # std_dev_par *= 1.5
+    # print(f"std_dev: {std_dev_par}")
+    # print(f"corr_par: {corr_par}")
+    # print(f"mean_par: {par_mean_fx}")
     std_dev_par = np.diag(std_dev_par)
     # corr_par = np.eye(len(par_mean_fx))
     par_cov_fx = std_dev_par @ corr_par @ std_dev_par
