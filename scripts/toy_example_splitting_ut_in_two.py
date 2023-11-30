@@ -33,8 +33,14 @@ dim_x1 = x1.shape[0]
 dim_x2 = x2.shape[0]
 Pa = scipy.linalg.block_diag(P1, P2)
 
+# def sqrt_method(P):
+#     D, U = np.linalg.eig(P)
+#     return U @ np.diag(np.sqrt(D))
 sqrt_method = lambda P: scipy.linalg.cholesky(P, lower = True)
-func = lambda x: x**2 + x*x[-1]
+P_sqrt = sqrt_method(Pa)
+assert np.allclose(P_sqrt @ P_sqrt.T, Pa)
+
+func = lambda x: np.cos(x)*x**2 + x*x[-1]
 func2 = lambda u, v: func(np.hstack((u, v)))
 
 points_implemented = ["genut", "julier"]
