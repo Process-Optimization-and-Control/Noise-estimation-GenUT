@@ -47,7 +47,7 @@ matplotlib.rc('font', **font)
 
 
 #%% Set N simulation times
-N_sim = 6 #this is how many times to repeat each iteration
+N_sim = 100 #this is how many times to repeat each iteration
 overwrite_results = True #overwrites the saved results
 points_x = "genut" #sigma-point method in the propagataion step
 # points_x = "scaled"
@@ -60,7 +60,7 @@ cost_func_type = "RMSE" #other valid option is "valappil"
 
 filters_to_run = ["gut", "lin", "mc"]
 
-N_mc_dist = int(1e2) #Numer of MC samples to estimate w~(w^,Q) in Valappil's approach
+N_mc_dist = int(1e3) #Numer of MC samples to estimate w~(w^,Q) in Valappil's approach
 
 #Cost function. Check both mean and rmse
 j_valappil_gut = np.zeros((dim_x, N_sim))
