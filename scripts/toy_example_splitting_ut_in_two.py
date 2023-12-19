@@ -40,7 +40,7 @@ sqrt_method = lambda P: scipy.linalg.cholesky(P, lower = True)
 P_sqrt = sqrt_method(Pa)
 assert np.allclose(P_sqrt @ P_sqrt.T, Pa)
 
-func = lambda x: np.cos(x)*x**2 + x*x[-1]
+func = lambda x: x**2 + x*x[-1]
 func2 = lambda u, v: func(np.hstack((u, v)))
 
 points_implemented = ["genut", "julier"]

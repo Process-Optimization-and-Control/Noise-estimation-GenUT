@@ -10,24 +10,33 @@ import casadi as cd
 from state_estimator import sigma_points_classes as spc
 
 
-def ode_model_plant(dt):
-    
+def ode_model_plant(dt, power_par = 2.):
     #Make parameters
     k1 = cd.MX.sym("k1", 1) # [-]
     k2 = cd.MX.sym("k2", 1) # [-]
     k3 = cd.MX.sym("k3", 1) # [-]
     k4 = cd.MX.sym("k4", 1) # [-]
     
-    
     #States
     cA = cd.MX.sym("cA", 1)
     cB = cd.MX.sym("cB", 1)
     cC = cd.MX.sym("cC", 1)
     
+    # parameters exponentiated to the right power
+    # power_par = 4.
+    k1p = k1**power_par
+    k2p = k2**power_par
+    k3p = k3**power_par
+    k4p = k4**power_par
+    
     #ode system
-    cA_dot = -k1*cA + k2*cB*cC
-    cB_dot = k1*cA - k2*cB*cC - 2*k3*cB**2 + 2*k4*cC
-    cC_dot = k1*cA - k2*cB*cC + k3*cB**2 - k4*cC
+    cA_dot = -k1p*cA + k2p*cB*cC
+    cB_dot = k1p*cA - k2p*cB*cC - 2*k3p*cB**2 + 2*k4p*cC
+    cC_dot = k1p*cA - k2p*cB*cC + k3p*cB**2 - k4p*cC
+    # #ode system
+    # cA_dot = -k1*cA + k2*cB*cC
+    # cB_dot = k1*cA - k2*cB*cC - 2*k3*cB**2 + 2*k4*cC
+    # cC_dot = k1*cA - k2*cB*cC + k3*cB**2 - k4*cC
     
     
     #Concatenate equation, states, inputs and parameters
@@ -85,69 +94,8 @@ def hx(x):
     return np.atleast_1d(y)
 
 
-def get_literature_values_sym_dist(dt):
-    """
-    Initial values, parameters etc. Made here for making main script cleaner.
 
-    Returns
-    -------
-    x0 : TYPE np.array(dim_x,)
-        DESCRIPTION. Starting point for UKF (mean value of initial guess)
-    P0 : TYPE np.array((dim_x, dim_x))
-        DESCRIPTION. Initial covariance matrix. Gives uncertainty of starting point. The starting point for the true system is drawn as x_true ~ N(x0,P0)
-    par_mean_fx : TYPE dict
-        DESCRIPTION. Parameters for the process model.
-    par_cov_fx : TYPE dixt
-        DESCRIPTION. Parameters covariance
-    Q : TYPE np.array((dim_w, dim_w))
-        DESCRIPTION. Process noise covariance matrix
-    R : TYPE np.array((dim_v, dim_v))
-        DESCRIPTION. Measurement noise covariance matrix
-
-    """
-    
-    #Nominal parameter values 
-    par_mean_fx = dict(k1 = .5, k2 = .05, k3 = .2, k4 = .01)
-    par_cov_fx = np.array(
-        [[3.7e-6, 9.5e-6, -5.83e-6, 2.36e-8],
-         [9.5e-6, 3.37e-4, -2.55e-4, -2.68e-6],
-         [-5.83e-6, -2.55e-4, 1.97e-4, 2.31e-6],
-         [2.36e-8, -2.68e-6, 2.31e-6, 4.79e-8]
-         ])
-    assert (par_cov_fx == par_cov_fx.T).all(), f"par_cov_fx is not symmetric, {(par_cov_fx == par_cov_fx.T)}"
-    dim_par = par_cov_fx.shape[0]
-    
-    std_dev_par = np.sqrt(np.diag(par_cov_fx))
-    std_dev_inv = np.diag([1/si for si in std_dev_par])
-    corr_par = std_dev_inv @ par_cov_fx @ std_dev_inv
-    
-    #rescale the standard devaiation, so that we don't sample negative values for k2
-    std_dev_par[1] *= .5
-    std_dev_par = np.diag(std_dev_par)
-    par_cov_fx = std_dev_par @ corr_par @ std_dev_par
-    
-    
-    cm3_par = np.zeros(dim_par)
-    cm4_par = spc.GenUTSigmaPoints.compute_cm4_isserlis_for_multivariate_normal(par_cov_fx)
-    
-    dist_multivar = scipy.stats.multivariate_normal(list(par_mean_fx.values()), par_cov_fx)
-    dist_univar = {}
-                                                    
-    
-    #Initial state and uncertainty
-    x0 = np.array([.5, .05, .0])
-    std_dev0 = np.diag([1e-1, 1e-1, 1e-3])
-    corr_0 = np.eye(x0.shape[0])
-    P0 = std_dev0 @ corr_0 @ std_dev0
-    P0 = .5*(P0 + P0.T)
-    
-    #Process and measurement noise
-    Q = np.diag(np.square([1e-3, 1e-3, 1e-3]))
-    R = np.diag([.25**2])
-    
-    return x0, P0, par_mean_fx, par_cov_fx, cm3_par, cm4_par, dist_multivar, dist_univar, Q, R
-
-def get_literature_values_points_dist(dt, N_samples = int(1e4)):
+def get_literature_values_points_dist(dt, N_samples = int(1e4), power_par = 2.):
     """
     Initial values, parameters etc. Made here for making main script cleaner.
 
@@ -200,9 +148,14 @@ def get_literature_values_points_dist(dt, N_samples = int(1e4)):
     N_samples = int(1e4)
     par_samples = get_points(dist_multivar, None, N = N_samples, constraint = 1e-8)
     
+    # par_samples = np.sqrt(par_samples)
+    par_samples = np.power(par_samples, 1/power_par)
+    # par_samples = np.power(par_samples, .25)
+    
     #evaluate mean, cov, cm3, cm4
     par_mean_fx_val = np.mean(par_samples, axis = 0)
     par_keys = par_mean_fx.keys()
+    del par_mean_fx, par_cov_fx, std_dev_par,corr_par,std_dev_inv,dist_multivar
     par_mean_fx = {key: val for key, val in zip(par_keys, par_mean_fx_val)}
     par_cov_fx = np.cov(par_samples, rowvar = False)
     cm3_par = scipy.stats.moment(par_samples, moment = 3, axis = 0)
@@ -225,7 +178,7 @@ def get_literature_values_points_dist(dt, N_samples = int(1e4)):
     # cm3_par = np.zeros(dim_par)
     # cm4_par = spc.GenUTSigmaPoints.compute_cm4_isserlis_for_multivariate_normal(par_cov_fx)
     
-    dist_univar = {}
+    # dist_univar = {}
                                                     
     
     #Initial state and uncertainty
@@ -239,7 +192,7 @@ def get_literature_values_points_dist(dt, N_samples = int(1e4)):
     Q = np.diag(np.square([1e-3, 1e-3, 1e-3]))
     R = np.diag([.25**2])
     
-    return x0, P0, par_mean_fx, par_cov_fx, cm3_par, cm4_par, dist_multivar, dist_univar, Q, R
+    return x0, P0, par_mean_fx, par_cov_fx, cm3_par, cm4_par, par_samples, Q, R
 
 def get_points(dist_multivar, dist_univar, N = int(1e3), constraint = None):
     assert isinstance(N, int), f"N must be an integer, it is now {type(N)}"

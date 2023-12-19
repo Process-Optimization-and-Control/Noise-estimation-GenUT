@@ -47,30 +47,26 @@ matplotlib.rc('font', **font)
 
 
 #%% Set N simulation times
-N_sim = 1 #this is how many times to repeat each iteration
-sample_par_each_timestep = False #False: sample random parameter and keep it constant throughout the simulation. True: sample parameter at every time step
-overwrite_results = False #overwrites the saved results
+N_sim = 100 #this is how many times to repeat each iteration
+overwrite_results = True #overwrites the saved results
 points_x = "genut" #sigma-point method in the propagataion step
 # points_x = "scaled"
 sqrt_method = lambda P: scipy.linalg.cholesky(P, lower = True) #for sigma-points
 x_var = ["A", "B", "C"]
 dim_x = len(x_var)
+power_par = 3.
 
 cost_func_type = "RMSE" #other valid option is "valappil"
 
-filters_to_run = [
-                "gut",  
-                    "lin", 
-                    "mc"
-                 ]
+filters_to_run = ["gut", "lin", "mc"]
 
 N_mc_dist = int(1e3) #Numer of MC samples to estimate w~(w^,Q) in Valappil's approach
 
+#Cost function. Check both mean and rmse
 j_valappil_gut = np.zeros((dim_x, N_sim))
 j_valappil_mc = np.zeros((dim_x, N_sim))
 j_valappil_lin = np.zeros((dim_x, N_sim))
 
-#See Barfoot page 95, good to check both mean and rmse
 j_mean_gut = np.zeros((dim_x, N_sim))
 j_mean_mc = np.zeros((dim_x, N_sim))
 j_mean_lin = np.zeros((dim_x, N_sim))
@@ -94,7 +90,7 @@ while Ni < N_sim:
         
         #%% Import parameters
         dt_y = .25 # [-] Measurement frequency
-        x0, P0, par_mean_fx, par_cov_fx, cm3_par, cm4_par, par_dist_multivar, par_dist_univar, Q_nom, R_nom = utils_gr.get_literature_values_points_dist(dt_y, N_samples = int(1e6))
+        x0, P0, par_mean_fx, par_cov_fx, cm3_par, cm4_par, par_samples, Q_nom, R_nom = utils_gr.get_literature_values_points_dist(dt_y, N_samples = int(1e6), power_par = power_par)
             
         #%% Define dimensions and initialize arrays
         
@@ -204,20 +200,14 @@ while Ni < N_sim:
         #%% Get parametric uncertainty of fx by GenUT. Generate sigmapoints first ("offline")
         positive_sigmas_par = True
         k_positive_par = k_positive
-        # sqrt_method = scipy.linalg.sqrtm
         points_par = spc.GenUTSigmaPoints(dim_par_fx, sqrt_method = sqrt_method, theta = k_positive_par, lbx = lbx)
         
         sigmas_fx_gut, w_fx_gut, _, _ = points_par.compute_sigma_points(np.array(list(par_mean_fx.values())), par_cov_fx, S = cm3_par, K = cm4_par)
         
-       
         #%% N_MC samples, random sampling
         
-        #par_mc_fx is a np.array((dim_par, N_mc_dist)) with random samples from par_samples_fx
-        par_mc_fx = utils_gr.get_points(
-            par_dist_multivar, par_dist_univar,
-            N = N_mc_dist,
-            constraint = 1e-10
-            )
+        par_mc_fx = par_samples[np.random.randint(0, high = par_samples.shape[0], size = N_mc_dist), :]
+        
         if False: #plot MC samples
             df_par_mc = pd.DataFrame(data = par_mc_fx, columns = [r"$k_" + str(i+1) + "$" for i in range(dim_par_fx)])
             sns.pairplot(df_par_mc, corner = True)
@@ -232,21 +222,21 @@ while Ni < N_sim:
         Q_diag_min = np.eye(dim_x)*1e-10
         
         #%% Casadi integrator, jacobian df/dp
-        F, jac_p_func, x_var_cd, p_var_cd,_,=  utils_gr.ode_model_plant(dt_y)
+        F, jac_p_func, x_var_cd, p_var_cd,_,=  utils_gr.ode_model_plant(dt_y, power_par = power_par)
         assert dim_x == x_var_cd.shape[0], "Dimension mismatch between x0 and x_var_cd"
         
         #%% Simulate the plant
         
-        par_true_val = utils_gr.get_points(par_dist_multivar, par_dist_univar, N = 1, constraint = 1e-10) #same through entire simulation
+        par_true_val = par_samples[np.random.randint(0, high = par_samples.shape[0]), :] #same through entire simulation
+        # par_true_val = utils_gr.get_points(par_dist_multivar, par_dist_univar, N = 1, constraint = 1e-10) #same through entire simulation
         par_true_fx = {key: val for key, val in zip(par_mean_fx.keys(), par_true_val)} #integrator function takes the parameters as a dict
         for i in range(1, dim_t):
             t_span = (t[i-1], t[i])
             
-            if sample_par_each_timestep: #Case 2 in the paper           
-                #sample parameter values for the plant
-                par_true_val = utils_gr.get_points(par_dist_multivar, par_dist_univar, N = 1, constraint = 1e-10)
-                assert (par_true_val > 0).all()
-                par_true_fx = {key: val for key, val in zip(par_mean_fx.keys(), par_true_val)}
+            #sample parameter values for the plant
+            par_true_val = par_true_val = par_samples[np.random.randint(0, high = par_samples.shape[0]), :]
+            assert (par_true_val > 0).all()
+            par_true_fx = {key: val for key, val in zip(par_mean_fx.keys(), par_true_val)}
             
             #Simulate the true plant
             x_true[:, i] = utils_gr.integrate_ode(F, 
@@ -426,14 +416,14 @@ if plot_it:
     idx_y = 0
     filters_to_plot = [
         "gut",
-        "mc",
+        # "mc",
         "lin",
         # "ol"
         ]
     
     font = {'size': 16}
     matplotlib.rc('font', **font)
-    fig1, ax1 = plt.subplots(dim_x, 1, sharex = True)
+    fig1, ax1 = plt.subplots(dim_x, 1, sharex = True, layout = "constrained", figsize = (9,6))
     
     plt_std_dev = True #plots 1 and 2 std dev around mean with shading
     for i in range(dim_x): #plot true states and ukf's estimates
@@ -503,12 +493,95 @@ if plot_it:
                                     **kwargs_lin)
         
         ylim_scaled = ax1[i].get_ylim()
+        ax1[i].yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%.2f'))
         
         if "ol" in filters_to_plot:
             ax1[i].plot(t, x_ol[i, :], label = "OL", **kwargs_pred)
         ax1[i].set_ylabel(ylabels[i])
         # ax1[i].legend(frameon = False, ncol = 3) 
     ax1[-1].set_xlabel("Time [h]")
+    
+    if True: #inset additional zoomed axis on last axes
+        ax_c = ax1[-1].inset_axes([0.5, 0.4, 0.35, 0.3])
+        
+        #replot in this new axes
+        i = 2
+        #plot true state
+        ax_c.plot(t, x_true[i, :], label = r"$x_{true}$")
+        # ax_c.plot(t, x_true[i, :], label = r"$x_{true}$", color = 'b')
+    
+        #plot measurements
+        if i in meas_idx:
+            ax_c.scatter(t, y[idx_y, :], 
+                            color = "m", 
+                            # color = l[0].get_color(), 
+                            s = 2,
+                            alpha = .2,
+                            marker = "o",
+                            label = r"$y$")
+            idx_y += 1
+        
+        #plot state predictions
+        #Q_gut
+        if "gut" in filters_to_plot:
+            l_gut = ax_c.plot(t, x_post_gut[i, :], label = r"$\hat{x}^+_{GenUT}$", **kwargs_pred)
+        
+        #Q_mc
+        if "mc" in filters_to_plot:
+            l_mc = ax_c.plot(t, x_post_mc[i, :], label = r"$\hat{x}^+_{mc}$", **kwargs_pred)
+
+        #Q_lin
+        if "lin" in filters_to_plot:
+            l_lin = ax_c.plot(t, x_post_lin[i, :], label = r"$\hat{x}^+_{Lin}$", **kwargs_pred)
+        
+        if plt_std_dev: #plot shading around mean trajectory
+            #Genut
+            if "gut" in filters_to_plot:
+                kwargs_gut.update({"color": l_gut[0].get_color()})
+                ax_c.fill_between(t, 
+                                    x_post_gut[i, :] + 2*np.sqrt(P_diag_post_gut[i,:]),
+                                    x_post_gut[i, :] - 2*np.sqrt(P_diag_post_gut[i,:]),
+                                    **kwargs_gut)
+                ax_c.fill_between(t, 
+                                    x_post_gut[i, :] + 1*np.sqrt(P_diag_post_gut[i,:]),
+                                    x_post_gut[i, :] - 1*np.sqrt(P_diag_post_gut[i,:]),
+                                    **kwargs_gut)
+            
+            #mc
+            if "mc" in filters_to_plot:
+                kwargs_mc.update({"color": l_mc[0].get_color()})
+                ax_c.fill_between(t, 
+                                    x_post_mc[i, :] + 2*np.sqrt(P_diag_post_mc[i,:]),
+                                    x_post_mc[i, :] - 2*np.sqrt(P_diag_post_mc[i,:]),
+                                    **kwargs_mc)
+                ax_c.fill_between(t, 
+                                    x_post_mc[i, :] + 1*np.sqrt(P_diag_post_mc[i,:]),
+                                    x_post_mc[i, :] - 1*np.sqrt(P_diag_post_mc[i,:]),
+                                    **kwargs_mc)
+            
+            #Linearized
+            if "lin" in filters_to_plot:
+                kwargs_lin.update({"color": l_lin[0].get_color()})
+                ax_c.fill_between(t, 
+                                    x_post_lin[i, :] + 2*np.sqrt(P_diag_post_lin[i,:]),
+                                    x_post_lin[i, :] - 2*np.sqrt(P_diag_post_lin[i,:]),
+                                    **kwargs_lin)
+                ax_c.fill_between(t, 
+                                    x_post_lin[i, :] + 1*np.sqrt(P_diag_post_lin[i,:]),
+                                    x_post_lin[i, :] - 1*np.sqrt(P_diag_post_lin[i,:]),
+                                    **kwargs_lin)
+            
+        
+        #zoom in on desired subregion
+        x1, x2, y1, y2 = 20, 25, 0.645, 0.67
+        ax_c.set_xlim((x1, x2))
+        ax_c.set_ylim((y1, y2))
+        ax_c.set_yticklabels([])
+        ax_c.set_xlabel(None)
+        ax_c.set_ylabel(None)
+        
+        ax1[-1].indicate_inset_zoom(ax_c, edgecolor = "black")
+    
     ax1[0].legend(ncol = 2, frameon = False)   
     
     
@@ -548,6 +621,8 @@ if plot_it:
         ax_w[i].plot(t, w_gut_hist[i, :], label = w_labels[0])
         ax_w[i].plot(t, w_mc_hist[i, :], label = w_labels[1])
         ax_w[i].set_ylabel(y_labels[i])
+        # ax_w[i].yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%.0e'))
+        ax_w[i].ticklabel_format(scilimits=(-4, 8))
     ax_w[-1].set_xlabel("Time")
     ax_w[0].legend()
     
@@ -567,150 +642,32 @@ if plot_it:
     ax_q[-1].set_xlabel("Time")
     ax_q[0].legend(ncol = 3)
     
-#%% Violin plot of cost function
-if N_sim >= 5: #only plot this if we have done some iterations
-    labels_violin = ["GenUT", "Lin", f"MC-{N_mc_dist}"]
-    if False:
-        fig_v, ax_v = plt.subplots(dim_x,1, sharex = True)
-        def set_axis_style(ax, labels):
-            ax.xaxis.set_tick_params(direction='out')
-            ax.xaxis.set_ticks_position('bottom')
-            ax.set_xticks(np.arange(1, len(labels) + 1))
-            ax.set_xticklabels(labels)
-            ax.set_xlim(0.25, len(labels) + 0.75)
-            # ax.set_xlabel(r'Method for tuning $Q_k, R_k$')
-        for i in range(dim_x):
-            data = np.vstack([j_valappil_gut[i], j_valappil_lin[i],  j_valappil_mc[i]]).T
-            # print(f"---cost of x_{i}---\n",
-            #       f"mean = {data.mean(axis = 0)}\n",
-            #       f"std = {data.std(axis = 0)}")
-            ax_v[i].violinplot(data)#, j_valappil_qf])
-            ax_v[i].set_ylabel(fr"Cost $x_{i+1}$ [-]")
-        set_axis_style(ax_v[i], labels_violin)
-        ax_v[-1].set_xlabel(r'Method for tuning $Q_k, R_k$')
-        fig_v.suptitle(f"Cost function distribution for N = {N_sim} iterations")
-
-    #%% Violin plot of cost function, filtered
+    #%% Cost functions
+if N_sim >= 5: #only compute this if we have done some iteration
     cols = ["A","B", "C"]
     df_cost_rmse_gut = pd.DataFrame(data = j_valappil_gut.T.copy(), columns = cols)
     df_cost_rmse_mc = pd.DataFrame(data = j_valappil_mc.T.copy(), columns = cols)
     df_cost_rmse_lin = pd.DataFrame(data = j_valappil_lin.T.copy(), columns = cols)
     
-    df_cost_rmse_list = [df_cost_rmse_lin, df_cost_rmse_gut, df_cost_rmse_mc]
-    labels_violin = ["lin", "gut", "mc"]
     df_cost_rmse_all = pd.concat(dict( 
-                                 lin = df_cost_rmse_lin,
-                                 gut = df_cost_rmse_gut,
+                                  lin = df_cost_rmse_lin,
+                                  gut = df_cost_rmse_gut,
                                   mc = df_cost_rmse_mc,
-                                 ), axis = 1)
+                                  ), axis = 1)
     
-    cost_filtered = [[] for i in range(len(df_cost_rmse_list))]
-    diverged_sim_list = [[] for i in range(len(df_cost_rmse_list))]
-
-    cost_filtered = [df_cost_rmse for df_cost_rmse in df_cost_rmse_list] #no filtering
-    
-    if False:
-        #Plot violinplot of filtered cost function
-        fig_h2, ax_h2 = plt.subplots(dim_x,1, sharex = True)
-        for i in range(dim_x):
-            d2 = [pd.DataFrame(data = cost_filtered[j].iloc[:, i].to_numpy(), columns = [labels_violin[j]]) for j in range(len(cost_filtered))]
-            data = pd.concat(d2, join = "outer", axis = 1) #concat, fill with Nans if missing values
-            # print(f"---cost of x_{i}---\n",
-            #       f"mean:\n{data.mean(axis = 0)}\n\n",
-            #       f"std_dev: \n{data.std(axis = 0)}")
-            sns.violinplot(data = data, ax = ax_h2[i], bw = .2)#, j_h2alappil_qf])
-            ax_h2[i].set_ylabel(r"$J_{\sigma}$" + fr" $(x_{i+1})$ [-]")
-        ax_h2[-1].set_xlabel(r'Method for tuning $Q_k, R_k$')
-        fig_h2.suptitle(f"RMSE for N = {N_sim} iterations")    
-    
-    #%% Mean cost, violinplot
     
     df_cost_mean_gut = pd.DataFrame(data = j_mean_gut.T.copy(), columns = cols)
     df_cost_mean_mc = pd.DataFrame(data = j_mean_mc.T.copy(), columns = cols)
     df_cost_mean_lin = pd.DataFrame(data = j_mean_lin.T.copy(), columns = cols)
     
-    df_cost_mean_list = [df_cost_mean_lin, df_cost_mean_gut, df_cost_mean_mc]
-    labels_violin = ["lin", "gut", "mc"]
-    # df_cost_mean_var = [[pd.concat(df_cost_mean_list.iloc[:, i], axis = 1)]]
     df_cost_mean_all = pd.concat(dict( 
-                                 lin = df_cost_mean_lin,
-                                 gut = df_cost_mean_gut,
+                                  lin = df_cost_mean_lin,
+                                  gut = df_cost_mean_gut,
                                   mc = df_cost_mean_mc
-                                 ), axis = 1)
+                                  ), axis = 1)
     
-    if False:
-        #Plot violinplot of filtered cost function
-        fig_jm, ax_jm = plt.subplots(dim_x,1, sharex = True)
-        for i in range(dim_x):
-            d2 = [pd.DataFrame(data = df_cost_mean_list[j].iloc[:, i].to_numpy(), columns = [labels_violin[j]]) for j in range(len(df_cost_mean_list))]
-            data = pd.concat(d2, join = "outer", axis = 1) #concat, fill with Nans if missing values
-            # print(f"---cost of x_{i}---\n",
-            #       f"mean:\n{data.mean(axis = 0)}\n\n",
-            #       f"std_dev: \n{data.std(axis = 0)}")
-            sns.violinplot(data = data, ax = ax_jm[i], 
-                           # bw = .2,
-                           inner = "box")#, j_h2alappil_qf])
-            # sns.swarmplot(data = data, ax = ax_jm[i], color = "black")
-            sns.stripplot(data = data, ax = ax_jm[i], color = "black")
-            ax_jm[i].set_ylabel(r"$J_{\mathbb{E}}$" + fr" $(x_{i+1})$ [-]")
-        ax_jm[-1].set_xlabel(r'Method for tuning $Q_k, R_k$')
-        fig_jm.suptitle(r"$\hat{x}^{+} - x_{true}$ " + f" for N = {N_sim} iterations")
     
    
-#%% Barplot baseline - slett denne?
-    #Plot the sum of filtered cost function
-    
-    #filter df first
-    if cost_func_type == "valappil":
-        df_S = df_cost_rmse_all.iloc[:,df_cost_rmse_all.columns.get_level_values(1)=="S"] #all S values in this df
-        df_cost_rmse_all = df_cost_rmse_all.iloc[(df_S < cost_S_lim).all(axis=1).values, :] #filter if all are true
-        
-    #select which filter to plot    
-    df_cost_rmse_all2 = df_cost_rmse_all.iloc[:, df_cost_rmse_all.columns.get_level_values(0)=="gut"]
-    df_cost_rmse_all2 = pd.concat([df_cost_rmse_all2, 
-                               # df_cost_rmse_all.iloc[:, df_cost_rmse_all.columns.get_level_values(0)=="lhs"],
-                                df_cost_rmse_all.iloc[:, df_cost_rmse_all.columns.get_level_values(0)=="mc"],
-                               df_cost_rmse_all.iloc[:, df_cost_rmse_all.columns.get_level_values(0)=="qf"],
-                              # df_cost_rmse_all.iloc[:, df_cost_rmse_all.columns.get_level_values(0)=="lin_n"],
-                              df_cost_rmse_all.iloc[:, df_cost_rmse_all.columns.get_level_values(0)=="lin"]
-                              ], axis = 1)
-    
-    #Plot relative performance of the methods compared to GenUT tuning
-    matplotlib.rc('font', **font)
-    fig_csumrel_all, ax_csumrel_all = plt.subplots(dim_x,1, sharex = False)
-    palette ={"Positive": "C0", 
-              "Negative": "C1"}
-    for i in range(dim_x):
-        #get variable (e.g. CO2) for all methods and convert from multicolumn=>singlecolumn
-        df_xvar = df_cost_rmse_all2.iloc[:,df_cost_rmse_all2.columns.get_level_values(1)==df_cost_rmse_lin.columns[i]]
-        df_xvar.columns = df_xvar.columns.droplevel(1)
-        #make values compared to GenUT and plot in %
-        df_xvar_rel = (df_xvar.sum()/df_cost_rmse_all2["lin"].iloc[:, i].sum()-1)*100
-        #Make different colors if J_rel >0 and J_rel<0
-        df_xvar_rel = pd.DataFrame(data=df_xvar_rel, columns=["Value"])
-        df_xvar_rel["method"] = df_xvar_rel.index
-        # df_xvar_rel = df_xvar_rel.drop(index = ["gut", "qf"])
-        df_xvar_rel = df_xvar_rel.drop(index = ["lin"])
-        df_xvar_rel["Increase"] = "Positive"
-        df_xvar_rel.loc[df_xvar_rel["Value"] < 0, "Increase"] = "Negative"
-        sns.barplot(x="method", y = "Value", data = df_xvar_rel, hue = "Increase", ax = ax_csumrel_all[i], dodge = False, palette = palette)
-        ax_csumrel_all[i].set_ylabel(fr"$\Sigma J(x_{i+1})$/" + r"$\Sigma J^{Lin}($" +fr"$x_{i+1})$[%]")
-        ylim = ax_csumrel_all[i].get_ylim()
-        # ax_csumrel_all[i].set_ylim((np.min([ylim[0], -5]), np.min([ylim[1], 5])))
-        xlim = ax_csumrel_all[i].get_xlim()
-        ax_csumrel_all[i].plot(list(xlim), [0, 0], 'k')
-        ax_csumrel_all[i].set_xlim(xlim)
-        if not i == 0:
-            ax_csumrel_all[i].legend().remove()
-        if not i == dim_x-1:
-            ax_csumrel_all[i].set_xlabel("")
-        
-    ax_csumrel_all[-1].set_xlabel(r'Method for tuning $Q_k, R_k$')
-    fig_csumrel_all.suptitle(f"Cost function sum/Lin for N = {df_cost_rmse_all2.shape[0]} iterations")    
-    plt.tight_layout()
-    
-    # print(df_cost_all2.loc[:,["ut", "gut", "lin", "linu", "ut", "gut"]].sum())
-
 #%% Simultation time plot
 
 df_t_gut = pd.DataFrame(data = time_sim_gut.T, columns = ["Run time [s]"])
@@ -731,8 +688,7 @@ del df_t_gut, df_t_lin, df_t_mc
 fig_rt, ax_rt = plt.subplots(1, 1, layout = "constrained")
 sns.violinplot(x = "Filter", y = "Run time [s]", data = df_t, split = True, ax = ax_rt, alpha = .2, legend = False, inner = "stick")
 plt.setp(ax_rt.collections, alpha=.3)
-# ax_rt.legend().remove()
-# sns.stripplot(x = "Filter", y = "Run time [s]", data = df_t, hue = "Option", dodge = True, ax = ax_rt)
+
 
 handles_leg, labels_leg = ax_rt.get_legend_handles_labels()
 ax_rt.legend(handles_leg[-2:], labels_leg[-2:]) 
@@ -754,8 +710,10 @@ if overwrite_results:
 #%% rmse_mean in table
 rmse_mean_table = df_cost_rmse_all.mean().unstack(level = 1)
 rmse_std_table = df_cost_rmse_all.std().unstack(level = 1)
-print(rmse_mean_table*100)
-print(rmse_std_table*100)
-print(rmse_std_table)
+print(f"\nrmse_mean_table*100:\n{rmse_mean_table*100}")
+print(f"\nrmse_mean/rmse_mean_gut*100:\n{(rmse_mean_table/rmse_mean_table.loc['gut',:])*100}")
+
+print(f"\nrmse_std_table*100:\n{rmse_std_table*100}")
+
 
 
