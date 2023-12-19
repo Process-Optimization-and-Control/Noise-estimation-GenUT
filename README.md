@@ -10,5 +10,5 @@
 
 The data_ folders are:
 - data_gasreactor: the latest simulation from main_batch_gasreactor.py is saved here.
-- data_gasreactor_fixed_parametric_mismatch: data from the paper for case 1 is saved here.
-- data_gasreactor_sample_par_every_dt: data from the paper for case 2 is saved here.
+- data_gasreactor_article_values: data used in the article for the gasreactor case study is saved here.
+- data_toy_example: data for the toy example/case study of is saved here.
